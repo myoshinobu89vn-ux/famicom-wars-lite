@@ -37,7 +37,7 @@ export function resizeCanvasForDpr(canvas, tileSize) {
 }
 
 export function drawScene(ctx, state, tileSize, ui) {
-  const { selectedUnitId = null, reachable = null, attackableKeys = null } = ui || {};
+  const { selectedUnitId = null, reachable = null, attackableKeys = null, animatingUnit = null } = ui || {};
 
   ctx.clearRect(0, 0, MAP_COLS * tileSize, MAP_ROWS * tileSize);
 
@@ -72,7 +72,10 @@ export function drawScene(ctx, state, tileSize, ui) {
 
   for (const unit of state.units) {
     if (unit.hp <= 0) continue;
-    const { x, y } = rowColToXY(unit.row, unit.col, tileSize);
+    const isAnimating = animatingUnit && animatingUnit.id === unit.id;
+    const drawRow = isAnimating ? animatingUnit.row : unit.row;
+    const drawCol = isAnimating ? animatingUnit.col : unit.col;
+    const { x, y } = rowColToXY(drawRow, drawCol, tileSize);
     const cx = x + tileSize / 2;
     const cy = y + tileSize / 2;
     const radius = tileSize * 0.35;

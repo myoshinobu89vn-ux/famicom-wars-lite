@@ -6,6 +6,7 @@ import { checkGameOver } from "./state.js";
 import { computeTileSize, resizeCanvasForDpr, drawScene, xyToRowCol } from "./render.js";
 import { createInputController } from "./input.js";
 import { runCpuTurn } from "./ai.js";
+import { animateUnitMove } from "./animation.js";
 
 const canvas = document.getElementById("board");
 const boardWrap = document.getElementById("boardWrap");
@@ -29,11 +30,22 @@ let tileSize = 32;
 let ctx = canvas.getContext("2d");
 let pendingBuildTile = null;
 
+function renderFrame(ui) {
+  drawScene(ctx, state, tileSize, ui);
+  actionBar.classList.toggle("hidden", !controller.isPostMove());
+}
+
 function render() {
   tileSize = computeTileSize(boardWrap);
   ctx = resizeCanvasForDpr(canvas, tileSize);
-  drawScene(ctx, state, tileSize, controller.getUiState());
-  actionBar.classList.toggle("hidden", !controller.isPostMove());
+  renderFrame(controller.getUiState());
+}
+
+// ユニットの移動を経路に沿ってスライドさせる(演出なし、位置補間のみ)
+function animateUnit(unit, path) {
+  return animateUnitMove(path, (row, col) => {
+    renderFrame({ ...controller.getUiState(), animatingUnit: { id: unit.id, row, col } });
+  });
 }
 
 function updateHud() {
@@ -63,6 +75,7 @@ const controller = createInputController({
   showBuildMenu,
   hideBuildMenu,
   isPlayerTurn: () => state.currentFaction === "player" && !state.gameOver,
+  animateMove: animateUnit,
 });
 
 function pointerToTile(clientX, clientY) {
@@ -100,27 +113,34 @@ function showGameOverIfNeeded() {
   return true;
 }
 
-function endPlayerTurn() {
-  if (state.gameOver) return;
+async function endPlayerTurn() {
+  if (state.gameOver || state.currentFaction !== "player" || controller.isAnimating()) return;
   controller.clearSelection();
   hideBuildMenu();
 
+  endTurnBtn.disabled = true;
   state.currentFaction = "cpu";
   startTurn(state, "cpu");
-  runCpuTurn(state);
+  await runCpuTurn(state, animateUnit);
   checkGameOver(state);
   render();
   updateHud();
-  if (showGameOverIfNeeded()) return;
+  if (showGameOverIfNeeded()) {
+    endTurnBtn.disabled = false;
+    return;
+  }
 
   state.turn += 1;
   state.currentFaction = "player";
   startTurn(state, "player");
   render();
   updateHud();
+  endTurnBtn.disabled = false;
 }
 
-endTurnBtn.addEventListener("click", endPlayerTurn);
+endTurnBtn.addEventListener("click", () => {
+  endPlayerTurn();
+});
 
 restartBtn.addEventListener("click", () => {
   state = createInitialState();

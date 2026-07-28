@@ -12,17 +12,18 @@ const ADJACENT_OFFSETS = [
   [0, 1],
 ];
 
-export function createInputController({ getState, requestRender, updateHud, showBuildMenu, hideBuildMenu, isPlayerTurn }) {
+export function createInputController({ getState, requestRender, updateHud, showBuildMenu, hideBuildMenu, isPlayerTurn, animateMove }) {
   let selectedUnit = null;
-  let mode = "idle"; // idle | selected | postMove
+  let mode = "idle"; // idle | selected | moving | postMove
   let reachable = new Map();
   let attackableKeys = new Set();
+  let isAnimating = false;
 
   function getUiState() {
     return {
       selectedUnitId: selectedUnit ? selectedUnit.id : null,
-      reachable: mode === "postMove" ? null : reachable,
-      attackableKeys: mode === "idle" ? null : attackableKeys,
+      reachable: mode === "postMove" || mode === "moving" ? null : reachable,
+      attackableKeys: mode === "idle" || mode === "moving" ? null : attackableKeys,
     };
   }
 
@@ -79,7 +80,15 @@ export function createInputController({ getState, requestRender, updateHud, show
     selectedUnit.moved = true;
   }
 
-  function attemptMoveTo(state, row, col) {
+  async function attemptMoveTo(state, row, col) {
+    const path = reachable.get(tileKey(row, col)).path;
+    const unit = selectedUnit;
+    mode = "moving";
+    isAnimating = true;
+    await animateMove(unit, path);
+    isAnimating = false;
+    if (selectedUnit !== unit) return; // 選択が解除されていたら何もしない
+
     moveSelectedTo(row, col);
 
     if (tryCapture(state, selectedUnit)) {
@@ -102,9 +111,16 @@ export function createInputController({ getState, requestRender, updateHud, show
     }
   }
 
-  function attemptAttackViaReposition(state, row, col, target) {
+  async function attemptAttackViaReposition(state, row, col, target) {
     const bestTile = findClosestReachableAdjacent(row, col);
     if (!bestTile) return false;
+    const unit = selectedUnit;
+    mode = "moving";
+    isAnimating = true;
+    await animateMove(unit, bestTile.path);
+    isAnimating = false;
+    if (selectedUnit !== unit) return true; // 選択が解除されていたら何もしない
+
     moveSelectedTo(bestTile.row, bestTile.col);
     resolveAttack(state, selectedUnit, target);
     finishUnitAction();
@@ -112,13 +128,13 @@ export function createInputController({ getState, requestRender, updateHud, show
   }
 
   function handleWait() {
-    if (!selectedUnit) return;
+    if (!selectedUnit || isAnimating) return;
     finishUnitAction();
   }
 
   function handleTileTap(row, col) {
     const state = getState();
-    if (state.gameOver || !isPlayerTurn()) return;
+    if (state.gameOver || !isPlayerTurn() || isAnimating) return;
 
     if (mode === "postMove") {
       if (selectedUnit.row === row && selectedUnit.col === col) {
@@ -180,6 +196,7 @@ export function createInputController({ getState, requestRender, updateHud, show
     build,
     clearSelection,
     getUiState,
+    isAnimating: () => isAnimating,
     isPostMove: () => mode === "postMove",
   };
 }
