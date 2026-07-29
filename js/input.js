@@ -18,12 +18,35 @@ export function createInputController({ getState, requestRender, updateHud, show
   let reachable = new Map();
   let attackableKeys = new Set();
   let isAnimating = false;
+  let lastMovePath = null; // 移動後キャンセル用の経路(反転して元の位置に戻す)
+
+  // 移動後メニューでどの行動を選べるか(隣接する敵がいれば攻撃、占領可能地形にいれば占領)
+  function computePostMoveOptions() {
+    if (mode !== "postMove" || !selectedUnit) return null;
+    const state = getState();
+    const enemyFaction = opponentOf(selectedUnit.faction);
+    const adjacentEnemies = ADJACENT_OFFSETS
+      .map(([dr, dc]) => getUnitAt(state, selectedUnit.row + dr, selectedUnit.col + dc))
+      .filter((u) => u && u.faction === enemyFaction);
+    const terrain = terrainAt(state, selectedUnit.row, selectedUnit.col);
+    const canCapture =
+      UNIT_TYPES[selectedUnit.type].canCapture &&
+      terrain.capturable &&
+      ownerAt(state, selectedUnit.row, selectedUnit.col) !== selectedUnit.faction;
+
+    return {
+      canAttack: adjacentEnemies.length === 1,
+      attackTarget: adjacentEnemies.length === 1 ? adjacentEnemies[0] : null,
+      canCapture,
+    };
+  }
 
   function getUiState() {
     return {
       selectedUnitId: selectedUnit ? selectedUnit.id : null,
       reachable: mode === "postMove" || mode === "moving" ? null : reachable,
       attackableKeys: mode === "idle" || mode === "moving" ? null : attackableKeys,
+      postMoveOptions: computePostMoveOptions(),
     };
   }
 
@@ -32,6 +55,7 @@ export function createInputController({ getState, requestRender, updateHud, show
     mode = "idle";
     reachable = new Map();
     attackableKeys = new Set();
+    lastMovePath = null;
     hideBuildMenu();
   }
 
@@ -77,12 +101,12 @@ export function createInputController({ getState, requestRender, updateHud, show
   function moveSelectedTo(row, col) {
     selectedUnit.row = row;
     selectedUnit.col = col;
-    selectedUnit.moved = true;
   }
 
   async function attemptMoveTo(state, row, col) {
     const path = reachable.get(tileKey(row, col)).path;
     const unit = selectedUnit;
+    lastMovePath = path;
     mode = "moving";
     isAnimating = true;
     await animateMove(unit, path);
@@ -90,25 +114,9 @@ export function createInputController({ getState, requestRender, updateHud, show
     if (selectedUnit !== unit) return; // 選択が解除されていたら何もしない
 
     moveSelectedTo(row, col);
-
-    if (tryCapture(state, selectedUnit)) {
-      finishUnitAction();
-      return;
-    }
-
-    const enemyFaction = opponentOf(selectedUnit.faction);
-    const hasAdjacentEnemy = ADJACENT_OFFSETS.some(([dr, dc]) => {
-      const u = getUnitAt(state, row + dr, col + dc);
-      return u && u.faction === enemyFaction;
-    });
-
-    if (hasAdjacentEnemy) {
-      mode = "postMove";
-      updateHud();
-      requestRender(getUiState());
-    } else {
-      finishUnitAction();
-    }
+    mode = "postMove";
+    updateHud();
+    requestRender(getUiState());
   }
 
   async function attemptAttackViaReposition(state, row, col, target) {
@@ -128,8 +136,46 @@ export function createInputController({ getState, requestRender, updateHud, show
   }
 
   function handleWait() {
-    if (!selectedUnit || isAnimating) return;
+    if (!selectedUnit || mode !== "postMove" || isAnimating) return;
+    selectedUnit.moved = true;
     finishUnitAction();
+  }
+
+  function handleAttack() {
+    if (!selectedUnit || mode !== "postMove" || isAnimating) return;
+    const options = computePostMoveOptions();
+    if (!options || !options.canAttack) return;
+    const state = getState();
+    resolveAttack(state, selectedUnit, options.attackTarget);
+    finishUnitAction();
+  }
+
+  function handleCapture() {
+    if (!selectedUnit || mode !== "postMove" || isAnimating) return;
+    const options = computePostMoveOptions();
+    if (!options || !options.canCapture) return;
+    const state = getState();
+    tryCapture(state, selectedUnit);
+    finishUnitAction();
+  }
+
+  async function handleCancelMove() {
+    if (!selectedUnit || mode !== "postMove" || isAnimating || !lastMovePath) return;
+    const unit = selectedUnit;
+    const [originRow, originCol] = lastMovePath[0];
+    const reversePath = [...lastMovePath].reverse();
+
+    mode = "moving";
+    isAnimating = true;
+    await animateMove(unit, reversePath);
+    isAnimating = false;
+    if (selectedUnit !== unit) return; // 選択が解除されていたら何もしない
+
+    unit.row = originRow;
+    unit.col = originCol;
+    lastMovePath = null;
+    const state = getState();
+    selectUnit(state, unit);
   }
 
   function handleTileTap(row, col) {
@@ -193,6 +239,9 @@ export function createInputController({ getState, requestRender, updateHud, show
   return {
     handleTileTap,
     handleWait,
+    handleAttack,
+    handleCapture,
+    handleCancelMove,
     build,
     clearSelection,
     getUiState,

@@ -18,7 +18,10 @@ const buildSoldierBtn = document.getElementById("buildSoldier");
 const buildTankBtn = document.getElementById("buildTank");
 const cancelBuildBtn = document.getElementById("cancelBuild");
 const actionBar = document.getElementById("actionBar");
+const attackBtn = document.getElementById("attackBtn");
+const captureBtn = document.getElementById("captureBtn");
 const waitBtn = document.getElementById("waitBtn");
+const cancelMoveBtn = document.getElementById("cancelMoveBtn");
 const gameOverOverlay = document.getElementById("gameOverOverlay");
 const gameOverText = document.getElementById("gameOverText");
 const restartBtn = document.getElementById("restartBtn");
@@ -33,6 +36,9 @@ let pendingBuildTile = null;
 function renderFrame(ui) {
   drawScene(ctx, state, tileSize, ui);
   actionBar.classList.toggle("hidden", !controller.isPostMove());
+  const options = ui.postMoveOptions;
+  attackBtn.disabled = !options || !options.canAttack;
+  captureBtn.disabled = !options || !options.canCapture;
 }
 
 function render() {
@@ -101,8 +107,17 @@ cancelBuildBtn.addEventListener("click", () => {
   hideBuildMenu();
   render();
 });
+attackBtn.addEventListener("click", () => {
+  controller.handleAttack();
+});
+captureBtn.addEventListener("click", () => {
+  controller.handleCapture();
+});
 waitBtn.addEventListener("click", () => {
   controller.handleWait();
+});
+cancelMoveBtn.addEventListener("click", () => {
+  controller.handleCancelMove();
 });
 
 function showGameOverIfNeeded() {

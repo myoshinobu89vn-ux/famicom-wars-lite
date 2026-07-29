@@ -80,6 +80,11 @@ button:active:not(:disabled) {
   padding: 12px;
   background: #1e293b;
   justify-content: center;
+  flex-wrap: wrap;
+}
+
+#actionBar .secondary {
+  background: #475569;
 }
 
 #buildMenu .panelTitle {
