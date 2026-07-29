@@ -38,6 +38,8 @@ export function createInputController({ getState, requestRender, updateHud, show
       canAttack: adjacentEnemies.length === 1,
       attackTarget: adjacentEnemies.length === 1 ? adjacentEnemies[0] : null,
       canCapture,
+      // 攻撃対象が1体でも複数でも、選べる対象すべてに枠カーソルを出すためのキー集合
+      attackTargetKeys: new Set(adjacentEnemies.map((u) => tileKey(u.row, u.col))),
     };
   }
 
@@ -57,12 +59,15 @@ export function createInputController({ getState, requestRender, updateHud, show
   }
 
   function getUiState() {
+    const postMoveOptions = computePostMoveOptions();
     return {
       selectedUnitId: selectedUnit ? selectedUnit.id : null,
       selectedUnitInfo: buildUnitInfo(),
       reachable: mode === "postMove" || mode === "moving" ? null : reachable,
-      attackableKeys: mode === "idle" || mode === "moving" ? null : attackableKeys,
-      postMoveOptions: computePostMoveOptions(),
+      // 移動後は枠カーソル(attackTargetKeys)で示すので、移動範囲選択中のみ塗りつぶし表示にする
+      attackableKeys: mode === "selected" ? attackableKeys : null,
+      postMoveOptions,
+      attackTargetKeys: postMoveOptions ? postMoveOptions.attackTargetKeys : null,
     };
   }
 

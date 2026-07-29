@@ -23,6 +23,7 @@ const captureBtn = document.getElementById("captureBtn");
 const waitBtn = document.getElementById("waitBtn");
 const cancelMoveBtn = document.getElementById("cancelMoveBtn");
 const unitInfo = document.getElementById("unitInfo");
+const turnBanner = document.getElementById("turnBanner");
 const gameOverOverlay = document.getElementById("gameOverOverlay");
 const gameOverText = document.getElementById("gameOverText");
 const restartBtn = document.getElementById("restartBtn");
@@ -33,6 +34,8 @@ startTurn(state, "player");
 let tileSize = 32;
 let ctx = canvas.getContext("2d");
 let pendingBuildTile = null;
+let lastTurnKey = null;
+let turnBannerTimer = null;
 
 function renderFrame(ui) {
   drawScene(ctx, state, tileSize, ui);
@@ -48,7 +51,7 @@ function updateUnitInfo(info) {
     unitInfo.classList.add("hidden");
     return;
   }
-  const factionLabel = info.faction === "player" ? "あなた" : "CPU";
+  const factionLabel = info.faction === "player" ? "You" : "CPU";
   unitInfo.innerHTML = `
     <div class="unitInfoTitle">${info.label}(${factionLabel})</div>
     <div class="unitInfoRow"><span>HP</span><span class="value">${info.hp}/${info.maxHp}</span></div>
@@ -72,9 +75,32 @@ function animateUnit(unit, path) {
 }
 
 function updateHud() {
-  const factionLabel = state.currentFaction === "player" ? "あなた" : "CPU";
-  turnLabel.textContent = `ターン ${state.turn} - ${factionLabel}`;
+  const factionLabel = state.currentFaction === "player" ? "You" : "CPU";
+  const turnText = `ターン ${state.turn} - ${factionLabel}`;
+  turnLabel.textContent = turnText;
   updateStatsBar();
+
+  if (showGameOverIfNeeded()) {
+    endTurnBtn.disabled = true;
+    return;
+  }
+
+  const turnKey = `${state.turn}-${state.currentFaction}`;
+  if (turnKey !== lastTurnKey) {
+    const isGameStart = lastTurnKey === null;
+    lastTurnKey = turnKey;
+    showTurnBanner(isGameStart ? "作戦開始!" : turnText);
+  }
+}
+
+// ターン切り替わりを画面中央に一時表示し、誰の番か分かりやすくする
+function showTurnBanner(text) {
+  turnBanner.textContent = text;
+  turnBanner.classList.add("visible");
+  clearTimeout(turnBannerTimer);
+  turnBannerTimer = setTimeout(() => {
+    turnBanner.classList.remove("visible");
+  }, 1400);
 }
 
 function renderFactionStats(faction, label, cssClass) {
@@ -92,7 +118,7 @@ function renderFactionStats(faction, label, cssClass) {
 
 function updateStatsBar() {
   statsBar.innerHTML =
-    renderFactionStats("player", "あなた", "player") + renderFactionStats("cpu", "CPU", "cpu");
+    renderFactionStats("player", "You", "player") + renderFactionStats("cpu", "CPU", "cpu");
 }
 
 function showBuildMenu(tile) {
@@ -171,14 +197,13 @@ async function endPlayerTurn() {
   endTurnBtn.disabled = true;
   state.currentFaction = "cpu";
   startTurn(state, "cpu");
+  render();
+  updateHud(); // CPUのターンに切り替わったことを即座に表示する
   await runCpuTurn(state, animateUnit);
   checkGameOver(state);
   render();
   updateHud();
-  if (showGameOverIfNeeded()) {
-    endTurnBtn.disabled = false;
-    return;
-  }
+  if (state.gameOver) return;
 
   state.turn += 1;
   state.currentFaction = "player";
@@ -198,6 +223,8 @@ restartBtn.addEventListener("click", () => {
   controller.clearSelection();
   hideBuildMenu();
   gameOverOverlay.classList.add("hidden");
+  endTurnBtn.disabled = false;
+  lastTurnKey = null;
   render();
   updateHud();
 });
