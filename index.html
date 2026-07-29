@@ -18,16 +18,20 @@
   <div id="app">
     <div id="hud">
       <span id="turnLabel">ターン 1 - あなた</span>
-      <span id="moneyLabel">所持金: 0G</span>
-      <button id="endTurnBtn">ターン終了</button>
     </div>
+
+    <div id="statsBar"></div>
 
     <div id="boardWrap">
       <canvas id="board"></canvas>
+      <div id="unitInfo" class="hidden"></div>
     </div>
 
     <div id="actionBar" class="hidden">
+      <button id="attackBtn">攻撃</button>
+      <button id="captureBtn">占領</button>
       <button id="waitBtn">待機</button>
+      <button id="cancelMoveBtn" class="secondary">キャンセル</button>
     </div>
 
     <div id="buildMenu" class="hidden">
@@ -35,6 +39,10 @@
       <button id="buildSoldier">兵士</button>
       <button id="buildTank">戦車</button>
       <button id="cancelBuild">キャンセル</button>
+    </div>
+
+    <div id="bottomBar">
+      <button id="endTurnBtn">ターン終了</button>
     </div>
 
     <div id="gameOverOverlay" class="hidden">

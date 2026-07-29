@@ -18,7 +18,8 @@ function findBestAttack(state, unit, reachable) {
   const unitDef = UNIT_TYPES[unit.type];
   let best = null;
 
-  for (const { row, col } of reachable.values()) {
+  for (const entry of reachable.values()) {
+    const { row, col } = entry;
     const candidates = [
       [row - 1, col],
       [row + 1, col],
@@ -36,7 +37,7 @@ function findBestAttack(state, unit, reachable) {
         (isKill && !best.isKill) ||
         (isKill === best.isKill && damage > best.damage)
       ) {
-        best = { fromRow: row, fromCol: col, target, damage, isKill };
+        best = { entry, target, damage, isKill };
       }
     }
   }
@@ -81,7 +82,7 @@ function moveToward(unit, reachable, target) {
   return best ? best.entry : null;
 }
 
-export function runCpuTurn(state) {
+export async function runCpuTurn(state, animateMove = async () => {}) {
   const faction = "cpu";
   const units = state.units.filter((u) => u.faction === faction && u.hp > 0);
 
@@ -93,14 +94,16 @@ export function runCpuTurn(state) {
 
     const attack = findBestAttack(state, unit, reachable);
     if (attack) {
-      unit.row = attack.fromRow;
-      unit.col = attack.fromCol;
+      await animateMove(unit, attack.entry.path);
+      unit.row = attack.entry.row;
+      unit.col = attack.entry.col;
       resolveAttack(state, unit, attack.target);
       continue;
     }
 
     const captureTile = findCaptureTarget(state, unit, reachable);
     if (captureTile) {
+      await animateMove(unit, captureTile.path);
       unit.row = captureTile.row;
       unit.col = captureTile.col;
       tryCapture(state, unit);
@@ -113,6 +116,7 @@ export function runCpuTurn(state) {
       const nearestTarget = targets[0];
       const stepTile = moveToward(unit, reachable, nearestTarget);
       if (stepTile) {
+        await animateMove(unit, stepTile.path);
         unit.row = stepTile.row;
         unit.col = stepTile.col;
       }

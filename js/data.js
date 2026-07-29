@@ -80,17 +80,14 @@ export const UNIT_TYPES = {
   },
 };
 
-// マップ座標は [row][col]。8列×12行の縦長マップ(iPhone縦持ち画面向け)。
+// マップ座標は [row][col]。8列×9行の縦長マップ(iPhone縦持ち画面向け)。
 // 首都・工場の位置は INITIAL_SETUP 側で上書きする。
 const layoutKeys = [
   "PPPPPPPP",
   "PFFPPFFP",
   "PFCPPCFP",
   "PPPWWPPP",
-  "PFPPPPFP",
   "PPPCCPPP",
-  "PPPCCPPP",
-  "PFPPPPFP",
   "PPPWWPPP",
   "PFCPPCFP",
   "PFFPPFFP",

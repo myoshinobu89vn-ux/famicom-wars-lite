@@ -88,6 +88,22 @@ export function incomeForFaction(state, faction) {
   return total;
 }
 
+// HUD常時表示用: 所持金・占領工場数・占領都市数・生存ユニット数
+export function factionStats(state, faction) {
+  let factories = 0;
+  let cities = 0;
+  for (let r = 0; r < MAP_ROWS; r++) {
+    for (let c = 0; c < MAP_COLS; c++) {
+      if (state.ownership[r][c] !== faction) continue;
+      const terrainId = state.map[r][c];
+      if (terrainId === "FACTORY") factories++;
+      else if (terrainId === "CITY") cities++;
+    }
+  }
+  const units = state.units.filter((u) => u.faction === faction && u.hp > 0).length;
+  return { money: state.money[faction], factories, cities, units };
+}
+
 export function resetUnitFlagsForFaction(state, faction) {
   for (const u of state.units) {
     if (u.faction === faction) {

@@ -1,23 +1,28 @@
 // 各モジュールの結線・ゲームループ・DOM連携
 
 import { UNIT_TYPES } from "./data.js";
-import { createInitialState, startTurn } from "./state.js";
+import { createInitialState, startTurn, factionStats } from "./state.js";
 import { checkGameOver } from "./state.js";
 import { computeTileSize, resizeCanvasForDpr, drawScene, xyToRowCol } from "./render.js";
 import { createInputController } from "./input.js";
 import { runCpuTurn } from "./ai.js";
+import { animateUnitMove } from "./animation.js";
 
 const canvas = document.getElementById("board");
 const boardWrap = document.getElementById("boardWrap");
 const turnLabel = document.getElementById("turnLabel");
-const moneyLabel = document.getElementById("moneyLabel");
+const statsBar = document.getElementById("statsBar");
 const endTurnBtn = document.getElementById("endTurnBtn");
 const buildMenu = document.getElementById("buildMenu");
 const buildSoldierBtn = document.getElementById("buildSoldier");
 const buildTankBtn = document.getElementById("buildTank");
 const cancelBuildBtn = document.getElementById("cancelBuild");
 const actionBar = document.getElementById("actionBar");
+const attackBtn = document.getElementById("attackBtn");
+const captureBtn = document.getElementById("captureBtn");
 const waitBtn = document.getElementById("waitBtn");
+const cancelMoveBtn = document.getElementById("cancelMoveBtn");
+const unitInfo = document.getElementById("unitInfo");
 const gameOverOverlay = document.getElementById("gameOverOverlay");
 const gameOverText = document.getElementById("gameOverText");
 const restartBtn = document.getElementById("restartBtn");
@@ -29,17 +34,65 @@ let tileSize = 32;
 let ctx = canvas.getContext("2d");
 let pendingBuildTile = null;
 
+function renderFrame(ui) {
+  drawScene(ctx, state, tileSize, ui);
+  actionBar.classList.toggle("hidden", !controller.isPostMove());
+  const options = ui.postMoveOptions;
+  attackBtn.disabled = !options || !options.canAttack;
+  captureBtn.disabled = !options || !options.canCapture;
+  updateUnitInfo(ui.selectedUnitInfo);
+}
+
+function updateUnitInfo(info) {
+  if (!info) {
+    unitInfo.classList.add("hidden");
+    return;
+  }
+  const factionLabel = info.faction === "player" ? "あなた" : "CPU";
+  unitInfo.innerHTML = `
+    <div class="unitInfoTitle">${info.label}(${factionLabel})</div>
+    <div class="unitInfoRow"><span>HP</span><span class="value">${info.hp}/${info.maxHp}</span></div>
+    <div class="unitInfoRow"><span>移動力</span><span class="value">${info.move}</span></div>
+    <div class="unitInfoRow"><span>攻撃力</span><span class="value">${info.power}</span></div>
+  `;
+  unitInfo.classList.remove("hidden");
+}
+
 function render() {
   tileSize = computeTileSize(boardWrap);
   ctx = resizeCanvasForDpr(canvas, tileSize);
-  drawScene(ctx, state, tileSize, controller.getUiState());
-  actionBar.classList.toggle("hidden", !controller.isPostMove());
+  renderFrame(controller.getUiState());
+}
+
+// ユニットの移動を経路に沿ってスライドさせる(演出なし、位置補間のみ)
+function animateUnit(unit, path) {
+  return animateUnitMove(path, (row, col) => {
+    renderFrame({ ...controller.getUiState(), animatingUnit: { id: unit.id, row, col } });
+  });
 }
 
 function updateHud() {
   const factionLabel = state.currentFaction === "player" ? "あなた" : "CPU";
   turnLabel.textContent = `ターン ${state.turn} - ${factionLabel}`;
-  moneyLabel.textContent = `所持金: ${state.money.player}G`;
+  updateStatsBar();
+}
+
+function renderFactionStats(faction, label, cssClass) {
+  const s = factionStats(state, faction);
+  return `
+    <div class="factionStats ${cssClass}">
+      <span class="factionLabel">${label}</span>
+      <span class="stat">資金 <b>${s.money}G</b></span>
+      <span class="stat">工場 <b>${s.factories}</b></span>
+      <span class="stat">都市 <b>${s.cities}</b></span>
+      <span class="stat">兵 <b>${s.units}</b></span>
+    </div>
+  `;
+}
+
+function updateStatsBar() {
+  statsBar.innerHTML =
+    renderFactionStats("player", "あなた", "player") + renderFactionStats("cpu", "CPU", "cpu");
 }
 
 function showBuildMenu(tile) {
@@ -63,6 +116,7 @@ const controller = createInputController({
   showBuildMenu,
   hideBuildMenu,
   isPlayerTurn: () => state.currentFaction === "player" && !state.gameOver,
+  animateMove: animateUnit,
 });
 
 function pointerToTile(clientX, clientY) {
@@ -88,8 +142,17 @@ cancelBuildBtn.addEventListener("click", () => {
   hideBuildMenu();
   render();
 });
+attackBtn.addEventListener("click", () => {
+  controller.handleAttack();
+});
+captureBtn.addEventListener("click", () => {
+  controller.handleCapture();
+});
 waitBtn.addEventListener("click", () => {
   controller.handleWait();
+});
+cancelMoveBtn.addEventListener("click", () => {
+  controller.handleCancelMove();
 });
 
 function showGameOverIfNeeded() {
@@ -100,27 +163,34 @@ function showGameOverIfNeeded() {
   return true;
 }
 
-function endPlayerTurn() {
-  if (state.gameOver) return;
+async function endPlayerTurn() {
+  if (state.gameOver || state.currentFaction !== "player" || controller.isAnimating()) return;
   controller.clearSelection();
   hideBuildMenu();
 
+  endTurnBtn.disabled = true;
   state.currentFaction = "cpu";
   startTurn(state, "cpu");
-  runCpuTurn(state);
+  await runCpuTurn(state, animateUnit);
   checkGameOver(state);
   render();
   updateHud();
-  if (showGameOverIfNeeded()) return;
+  if (showGameOverIfNeeded()) {
+    endTurnBtn.disabled = false;
+    return;
+  }
 
   state.turn += 1;
   state.currentFaction = "player";
   startTurn(state, "player");
   render();
   updateHud();
+  endTurnBtn.disabled = false;
 }
 
-endTurnBtn.addEventListener("click", endPlayerTurn);
+endTurnBtn.addEventListener("click", () => {
+  endPlayerTurn();
+});
 
 restartBtn.addEventListener("click", () => {
   state = createInitialState();

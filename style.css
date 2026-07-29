@@ -23,6 +23,7 @@ html, body {
 #hud {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 12px;
   padding: 10px 12px;
   background: #1e293b;
@@ -30,11 +31,49 @@ html, body {
   flex-wrap: wrap;
 }
 
-#hud button {
-  margin-left: auto;
+#statsBar {
+  display: flex;
+  gap: 8px;
+  padding: 6px 12px;
+  background: #16213a;
+  overflow-x: auto;
+}
+
+.factionStats {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 11px;
+  white-space: nowrap;
+  color: #cbd5e1;
+}
+
+.factionStats .factionLabel {
+  font-weight: bold;
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: white;
+}
+
+.factionStats.player .factionLabel {
+  background: #2563eb;
+}
+
+.factionStats.cpu .factionLabel {
+  background: #dc2626;
+}
+
+.factionStats .stat b {
+  color: #f1f5f9;
 }
 
 #boardWrap {
+  position: relative;
   flex: 1;
   display: flex;
   align-items: center;
@@ -47,6 +86,38 @@ html, body {
   touch-action: none;
   max-width: 100%;
   max-height: 100%;
+}
+
+#unitInfo {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  min-width: 120px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.88);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  font-size: 12px;
+  line-height: 1.6;
+  pointer-events: none;
+}
+
+#unitInfo .unitInfoTitle {
+  font-size: 13px;
+  font-weight: bold;
+  margin-bottom: 2px;
+}
+
+#unitInfo .unitInfoRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #cbd5e1;
+}
+
+#unitInfo .unitInfoRow .value {
+  color: #f1f5f9;
+  font-weight: bold;
 }
 
 button {
@@ -80,6 +151,11 @@ button:active:not(:disabled) {
   padding: 12px;
   background: #1e293b;
   justify-content: center;
+  flex-wrap: wrap;
+}
+
+#actionBar .secondary {
+  background: #475569;
 }
 
 #buildMenu .panelTitle {
@@ -95,6 +171,19 @@ button:active:not(:disabled) {
 
 #buildMenu #cancelBuild {
   background: #475569;
+}
+
+#bottomBar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 12px;
+  background: #1e293b;
+}
+
+#bottomBar button {
+  width: 100%;
+  max-width: 320px;
 }
 
 #gameOverOverlay {
