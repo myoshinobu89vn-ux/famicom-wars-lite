@@ -35,6 +35,7 @@ export function resolveAttack(state, attacker, defender) {
 
   attacker.acted = true;
   attacker.moved = true;
+  checkGameOver(state);
 
   return { damage, counterDamage, defenderDied, attackerDied };
 }

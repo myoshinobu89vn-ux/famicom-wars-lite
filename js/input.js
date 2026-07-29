@@ -14,11 +14,13 @@ const ADJACENT_OFFSETS = [
 
 export function createInputController({ getState, requestRender, updateHud, showBuildMenu, hideBuildMenu, isPlayerTurn, animateMove }) {
   let selectedUnit = null;
-  let mode = "idle"; // idle | selected | moving | postMove
+  let mode = "idle"; // idle | selected | moving | postMove | inspecting
   let reachable = new Map();
   let attackableKeys = new Set();
   let isAnimating = false;
   let lastMovePath = null; // 移動後キャンセル用の経路(反転して元の位置に戻す)
+  let inspectedUnit = null; // 敵ユニットを閲覧中(移動範囲を見るだけで操作はできない)
+  let inspectedReachable = new Map();
 
   // 移動後メニューでどの行動を選べるか(隣接する敵がいれば攻撃、占領可能地形にいれば占領)
   function computePostMoveOptions() {
@@ -43,14 +45,15 @@ export function createInputController({ getState, requestRender, updateHud, show
     };
   }
 
-  // 選択中ユニットのプロパティ表示用データ
+  // 選択中(または閲覧中)ユニットのプロパティ表示用データ
   function buildUnitInfo() {
-    if (!selectedUnit) return null;
-    const def = UNIT_TYPES[selectedUnit.type];
+    const unit = selectedUnit || inspectedUnit;
+    if (!unit) return null;
+    const def = UNIT_TYPES[unit.type];
     return {
       label: def.label,
-      faction: selectedUnit.faction,
-      hp: selectedUnit.hp,
+      faction: unit.faction,
+      hp: unit.hp,
       maxHp: def.hp,
       move: def.move,
       power: def.power,
@@ -60,10 +63,12 @@ export function createInputController({ getState, requestRender, updateHud, show
 
   function getUiState() {
     const postMoveOptions = computePostMoveOptions();
+    const shownReachable =
+      mode === "inspecting" ? inspectedReachable : mode === "postMove" || mode === "moving" ? null : reachable;
     return {
-      selectedUnitId: selectedUnit ? selectedUnit.id : null,
+      selectedUnitId: selectedUnit ? selectedUnit.id : inspectedUnit ? inspectedUnit.id : null,
       selectedUnitInfo: buildUnitInfo(),
-      reachable: mode === "postMove" || mode === "moving" ? null : reachable,
+      reachable: shownReachable,
       // 移動後は枠カーソル(attackTargetKeys)で示すので、移動範囲選択中のみ塗りつぶし表示にする
       attackableKeys: mode === "selected" ? attackableKeys : null,
       postMoveOptions,
@@ -73,6 +78,8 @@ export function createInputController({ getState, requestRender, updateHud, show
 
   function clearSelection() {
     selectedUnit = null;
+    inspectedUnit = null;
+    inspectedReachable = new Map();
     mode = "idle";
     reachable = new Map();
     attackableKeys = new Set();
@@ -94,10 +101,23 @@ export function createInputController({ getState, requestRender, updateHud, show
 
   function selectUnit(state, unit) {
     selectedUnit = unit;
+    inspectedUnit = null;
     mode = "selected";
     const occupied = occupiedKeysExcluding(state, unit.id);
     reachable = computeReachable(state.map, occupied, unit.type, unit.row, unit.col, UNIT_TYPES[unit.type].move);
     attackableKeys = computeAttackable(state, unit, reachable);
+    hideBuildMenu();
+    updateHud();
+    requestRender(getUiState());
+  }
+
+  // 敵ユニットの移動範囲を閲覧するだけのモード(操作は一切できない)
+  function inspectUnit(state, unit) {
+    selectedUnit = null;
+    inspectedUnit = unit;
+    mode = "inspecting";
+    const occupied = occupiedKeysExcluding(state, unit.id);
+    inspectedReachable = computeReachable(state.map, occupied, unit.type, unit.row, unit.col, UNIT_TYPES[unit.type].move);
     hideBuildMenu();
     updateHud();
     requestRender(getUiState());
@@ -231,6 +251,11 @@ export function createInputController({ getState, requestRender, updateHud, show
 
     if (unitHere && unitHere.faction === "player" && !unitHere.moved) {
       selectUnit(state, unitHere);
+      return;
+    }
+
+    if (unitHere && unitHere.faction === "cpu") {
+      inspectUnit(state, unitHere);
       return;
     }
 

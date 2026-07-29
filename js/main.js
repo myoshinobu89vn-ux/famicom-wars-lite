@@ -111,7 +111,7 @@ function renderFactionStats(faction, label, cssClass) {
       <span class="stat">資金 <b>${s.money}G</b></span>
       <span class="stat">工場 <b>${s.factories}</b></span>
       <span class="stat">都市 <b>${s.cities}</b></span>
-      <span class="stat">兵 <b>${s.units}</b></span>
+      <span class="stat">ユニット数 <b>${s.units}</b></span>
     </div>
   `;
 }
@@ -183,8 +183,11 @@ cancelMoveBtn.addEventListener("click", () => {
 
 function showGameOverIfNeeded() {
   if (!state.gameOver) return false;
-  const won = state.gameOver.winner === "player";
-  gameOverText.textContent = won ? "勝利! 敵の首都を占領した" : "敗北... 首都を占領された";
+  const { winner, reason } = state.gameOver;
+  const won = winner === "player";
+  const winText = reason === "annihilation" ? "勝利! 敵ユニットを全滅させた" : "勝利! 敵の首都を占領した";
+  const loseText = reason === "annihilation" ? "敗北... ユニットが全滅した" : "敗北... 首都を占領された";
+  gameOverText.textContent = won ? winText : loseText;
   gameOverOverlay.classList.remove("hidden");
   return true;
 }
