@@ -34,6 +34,47 @@ html, body {
   margin-left: auto;
 }
 
+#statsBar {
+  display: flex;
+  gap: 8px;
+  padding: 6px 12px;
+  background: #16213a;
+  overflow-x: auto;
+}
+
+.factionStats {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 11px;
+  white-space: nowrap;
+  color: #cbd5e1;
+}
+
+.factionStats .factionLabel {
+  font-weight: bold;
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: white;
+}
+
+.factionStats.player .factionLabel {
+  background: #2563eb;
+}
+
+.factionStats.cpu .factionLabel {
+  background: #dc2626;
+}
+
+.factionStats .stat b {
+  color: #f1f5f9;
+}
+
 #boardWrap {
   position: relative;
   flex: 1;

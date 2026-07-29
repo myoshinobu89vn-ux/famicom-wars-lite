@@ -1,7 +1,7 @@
 // 各モジュールの結線・ゲームループ・DOM連携
 
 import { UNIT_TYPES } from "./data.js";
-import { createInitialState, startTurn } from "./state.js";
+import { createInitialState, startTurn, factionStats } from "./state.js";
 import { checkGameOver } from "./state.js";
 import { computeTileSize, resizeCanvasForDpr, drawScene, xyToRowCol } from "./render.js";
 import { createInputController } from "./input.js";
@@ -11,7 +11,7 @@ import { animateUnitMove } from "./animation.js";
 const canvas = document.getElementById("board");
 const boardWrap = document.getElementById("boardWrap");
 const turnLabel = document.getElementById("turnLabel");
-const moneyLabel = document.getElementById("moneyLabel");
+const statsBar = document.getElementById("statsBar");
 const endTurnBtn = document.getElementById("endTurnBtn");
 const buildMenu = document.getElementById("buildMenu");
 const buildSoldierBtn = document.getElementById("buildSoldier");
@@ -74,7 +74,25 @@ function animateUnit(unit, path) {
 function updateHud() {
   const factionLabel = state.currentFaction === "player" ? "あなた" : "CPU";
   turnLabel.textContent = `ターン ${state.turn} - ${factionLabel}`;
-  moneyLabel.textContent = `所持金: ${state.money.player}G`;
+  updateStatsBar();
+}
+
+function renderFactionStats(faction, label, cssClass) {
+  const s = factionStats(state, faction);
+  return `
+    <div class="factionStats ${cssClass}">
+      <span class="factionLabel">${label}</span>
+      <span class="stat">資金 <b>${s.money}G</b></span>
+      <span class="stat">工場 <b>${s.factories}</b></span>
+      <span class="stat">都市 <b>${s.cities}</b></span>
+      <span class="stat">兵 <b>${s.units}</b></span>
+    </div>
+  `;
+}
+
+function updateStatsBar() {
+  statsBar.innerHTML =
+    renderFactionStats("player", "あなた", "player") + renderFactionStats("cpu", "CPU", "cpu");
 }
 
 function showBuildMenu(tile) {
