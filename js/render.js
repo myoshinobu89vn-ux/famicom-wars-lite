@@ -37,7 +37,13 @@ export function resizeCanvasForDpr(canvas, tileSize) {
 }
 
 export function drawScene(ctx, state, tileSize, ui) {
-  const { selectedUnitId = null, reachable = null, attackableKeys = null, animatingUnit = null } = ui || {};
+  const {
+    selectedUnitId = null,
+    reachable = null,
+    attackableKeys = null,
+    attackTargetKeys = null,
+    animatingUnit = null,
+  } = ui || {};
 
   ctx.clearRect(0, 0, MAP_COLS * tileSize, MAP_ROWS * tileSize);
 
@@ -102,6 +108,17 @@ export function drawScene(ctx, state, tileSize, ui) {
     ctx.font = `${Math.floor(tileSize * 0.22)}px sans-serif`;
     ctx.fillStyle = "#111";
     ctx.fillText(String(unit.hp), cx, y + tileSize - Math.floor(tileSize * 0.14));
+  }
+
+  // 移動後、攻撃対象に選べるタイルへ枠囲いのカーソルを表示する(対象が1体でも複数でも)
+  if (attackTargetKeys) {
+    for (const key of attackTargetKeys) {
+      const [r, c] = key.split(",").map(Number);
+      const { x, y } = rowColToXY(r, c, tileSize);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "#f87171";
+      ctx.strokeRect(x + 2, y + 2, tileSize - 4, tileSize - 4);
+    }
   }
 }
 

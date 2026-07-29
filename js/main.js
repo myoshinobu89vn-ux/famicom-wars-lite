@@ -51,7 +51,7 @@ function updateUnitInfo(info) {
     unitInfo.classList.add("hidden");
     return;
   }
-  const factionLabel = info.faction === "player" ? "あなた" : "CPU";
+  const factionLabel = info.faction === "player" ? "You" : "CPU";
   unitInfo.innerHTML = `
     <div class="unitInfoTitle">${info.label}(${factionLabel})</div>
     <div class="unitInfoRow"><span>HP</span><span class="value">${info.hp}/${info.maxHp}</span></div>
@@ -75,7 +75,7 @@ function animateUnit(unit, path) {
 }
 
 function updateHud() {
-  const factionLabel = state.currentFaction === "player" ? "あなた" : "CPU";
+  const factionLabel = state.currentFaction === "player" ? "You" : "CPU";
   const turnText = `ターン ${state.turn} - ${factionLabel}`;
   turnLabel.textContent = turnText;
   updateStatsBar();
@@ -87,8 +87,9 @@ function updateHud() {
 
   const turnKey = `${state.turn}-${state.currentFaction}`;
   if (turnKey !== lastTurnKey) {
+    const isGameStart = lastTurnKey === null;
     lastTurnKey = turnKey;
-    showTurnBanner(turnText);
+    showTurnBanner(isGameStart ? "作戦開始!" : turnText);
   }
 }
 
@@ -117,7 +118,7 @@ function renderFactionStats(faction, label, cssClass) {
 
 function updateStatsBar() {
   statsBar.innerHTML =
-    renderFactionStats("player", "あなた", "player") + renderFactionStats("cpu", "CPU", "cpu");
+    renderFactionStats("player", "You", "player") + renderFactionStats("cpu", "CPU", "cpu");
 }
 
 function showBuildMenu(tile) {
