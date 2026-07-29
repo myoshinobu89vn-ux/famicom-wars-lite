@@ -117,12 +117,19 @@ export function opponentOf(faction) {
   return faction === "player" ? "cpu" : "player";
 }
 
-// 首都が奪われていれば勝敗を確定する
+// 首都が奪われている、または生存ユニットが0になっていれば勝敗を確定する
 export function checkGameOver(state) {
   for (const faction of ["player", "cpu"]) {
     const cap = state.capitalLocation[faction];
     if (state.ownership[cap.row][cap.col] !== faction) {
-      state.gameOver = { winner: opponentOf(faction), loser: faction };
+      state.gameOver = { winner: opponentOf(faction), loser: faction, reason: "capital" };
+      return state.gameOver;
+    }
+  }
+  for (const faction of ["player", "cpu"]) {
+    const hasUnits = state.units.some((u) => u.faction === faction && u.hp > 0);
+    if (!hasUnits) {
+      state.gameOver = { winner: opponentOf(faction), loser: faction, reason: "annihilation" };
       return state.gameOver;
     }
   }
