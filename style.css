@@ -23,15 +23,12 @@ html, body {
 #hud {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 12px;
   padding: 10px 12px;
   background: #1e293b;
   font-size: 14px;
   flex-wrap: wrap;
-}
-
-#hud button {
-  margin-left: auto;
 }
 
 #statsBar {
@@ -174,6 +171,19 @@ button:active:not(:disabled) {
 
 #buildMenu #cancelBuild {
   background: #475569;
+}
+
+#bottomBar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 12px;
+  background: #1e293b;
+}
+
+#bottomBar button {
+  width: 100%;
+  max-width: 320px;
 }
 
 #gameOverOverlay {
