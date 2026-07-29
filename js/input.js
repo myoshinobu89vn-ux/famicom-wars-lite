@@ -41,9 +41,25 @@ export function createInputController({ getState, requestRender, updateHud, show
     };
   }
 
+  // 選択中ユニットのプロパティ表示用データ
+  function buildUnitInfo() {
+    if (!selectedUnit) return null;
+    const def = UNIT_TYPES[selectedUnit.type];
+    return {
+      label: def.label,
+      faction: selectedUnit.faction,
+      hp: selectedUnit.hp,
+      maxHp: def.hp,
+      move: def.move,
+      power: def.power,
+      canCapture: def.canCapture,
+    };
+  }
+
   function getUiState() {
     return {
       selectedUnitId: selectedUnit ? selectedUnit.id : null,
+      selectedUnitInfo: buildUnitInfo(),
       reachable: mode === "postMove" || mode === "moving" ? null : reachable,
       attackableKeys: mode === "idle" || mode === "moving" ? null : attackableKeys,
       postMoveOptions: computePostMoveOptions(),

@@ -22,6 +22,7 @@ const attackBtn = document.getElementById("attackBtn");
 const captureBtn = document.getElementById("captureBtn");
 const waitBtn = document.getElementById("waitBtn");
 const cancelMoveBtn = document.getElementById("cancelMoveBtn");
+const unitInfo = document.getElementById("unitInfo");
 const gameOverOverlay = document.getElementById("gameOverOverlay");
 const gameOverText = document.getElementById("gameOverText");
 const restartBtn = document.getElementById("restartBtn");
@@ -39,6 +40,22 @@ function renderFrame(ui) {
   const options = ui.postMoveOptions;
   attackBtn.disabled = !options || !options.canAttack;
   captureBtn.disabled = !options || !options.canCapture;
+  updateUnitInfo(ui.selectedUnitInfo);
+}
+
+function updateUnitInfo(info) {
+  if (!info) {
+    unitInfo.classList.add("hidden");
+    return;
+  }
+  const factionLabel = info.faction === "player" ? "あなた" : "CPU";
+  unitInfo.innerHTML = `
+    <div class="unitInfoTitle">${info.label}(${factionLabel})</div>
+    <div class="unitInfoRow"><span>HP</span><span class="value">${info.hp}/${info.maxHp}</span></div>
+    <div class="unitInfoRow"><span>移動力</span><span class="value">${info.move}</span></div>
+    <div class="unitInfoRow"><span>攻撃力</span><span class="value">${info.power}</span></div>
+  `;
+  unitInfo.classList.remove("hidden");
 }
 
 function render() {
