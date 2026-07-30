@@ -48,13 +48,32 @@ const STRATEGY_PENALTY = -30;
 
 // 複数ユニット連携(作戦グループ)関連の設定
 const SUPPORT_RANGE = 2; // この距離以内に生存中の味方がいれば「支援可能」とみなす
-const DEFEND_GROUP_RADIUS = 4; // 自軍首都からこの距離以内のユニットを防衛/再建グループに含める
+const DEFEND_GROUP_RADIUS = 4; // 自軍首都(または脅威)からこの距離以内のユニットをグループに含める
+
+// 全ユニット共通の孤立/連携チェック(グループの目的を問わない基礎点)
 const GROUP_SCORE = {
-  SAME_TARGET: 30, // 所属グループの目標へ近づく
   CLOSER_TO_ALLIES: 20, // 移動後、味方との距離が今より近くなる
   ISOLATED: -30, // 移動後、周囲に生存中の味方が誰もいない
   SUPPORTED: 20, // 移動後、周囲に生存中の味方が1体以上いる
   SOLO_ASSAULT: -50, // 孤立した状態での攻撃(単独突撃)への追加減点
+};
+
+// グループの目的(purpose)別の加減点。intercept は attack の基準を流用する。
+const GROUP_PURPOSE_SCORE = {
+  attack: {
+    APPROACH_TARGET: 40, // 設定された敵目標(敵主力/敵工場/敵首都)へ接近
+    MAINTAIN_ALLY_DISTANCE: 20, // 同じ攻撃グループの味方と近い距離を保つ
+  },
+  capture: {
+    APPROACH_TARGET: 40, // 目標都市への接近
+    FAST_CAPTURE: 30, // その場で占領が成立する(占領までのターン数を短縮)
+    UNNECESSARY_COMBAT: -20, // 占領グループが本来不要な戦闘を選ぶ
+  },
+  defend: {
+    APPROACH_TARGET: 40, // 防衛対象(首都など)への接近
+    DEFENSIVE_TERRAIN: 30, // 防御力の高い地形に配置される
+    LEAVE_TARGET: -40, // 防衛対象から離れる
+  },
 };
 
 const ADJACENT_OFFSETS = [
@@ -87,10 +106,16 @@ function logDecision(unit, candidate, group) {
 
 function logGroups(groups) {
   if (!AI_DEBUG || groups.length === 0) return;
-  for (const g of groups) {
+  const blocks = groups.map((g, i) => {
     const memberLines = g.members.map((u) => `- ${UNIT_TYPES[u.type].label}#${u.id}`).join("\n");
-    console.debug(`[AI Group] ${g.label}\nMembers:\n${memberLines}\nTarget:\n${g.target.label}(${g.target.row},${g.target.col})`);
-  }
+    return (
+      `Group ${i + 1}: ${g.label}\n` +
+      `type: ${g.purpose.toUpperCase()}\n` +
+      `target: ${g.target.label}(${g.target.row},${g.target.col})\n` +
+      `members:\n${memberLines}`
+    );
+  });
+  console.debug(`[AI Groups]\n\n${blocks.join("\n\n")}`);
 }
 
 // 攻撃側の種別と防御側の地形防御力からダメージを算出する(combat.js の resolveAttack と同じ式)
@@ -214,7 +239,7 @@ function pickAttackTarget(state, situation, members) {
 }
 
 // 占領グループの目標: 敵首都を除く未占領の占領可能地形のうち、歩兵部隊の重心から最も近いもの
-function pickExpandTarget(situation, members) {
+function pickCaptureTarget(situation, members) {
   const centroid = centroidOf(members);
   const candidates = situation.captureTargets.filter((t) => !t.isEnemyCapital);
   if (candidates.length === 0) return null;
@@ -223,49 +248,64 @@ function pickExpandTarget(situation, members) {
   return { row: best.row, col: best.col, label: "未占領都市" };
 }
 
-// ターン開始時に、現在の作戦モードに応じて仮想的な「作戦グループ」を生成する。
+// 迎撃グループの目標: 自軍へ迫っている敵ユニットのうち、迎撃部隊の重心から最も近いもの
+function pickInterceptTarget(situation, members) {
+  if (situation.enemyUnits.length === 0) return null;
+  const centroid = centroidOf(members);
+  const sorted = [...situation.enemyUnits].sort((a, b) => manhattan(centroid, a) - manhattan(centroid, b));
+  return { row: sorted[0].row, col: sorted[0].col, label: "侵攻部隊" };
+}
+
+function capitalTarget(situation) {
+  return { row: situation.ownCapital.row, col: situation.ownCapital.col, label: "自軍首都" };
+}
+
+// unit が自軍首都/脅威からの防衛・迎撃を担うのに十分近いか
+function isNearCapital(situation, unit) {
+  return manhattan(unit, situation.ownCapital) <= DEFEND_GROUP_RADIUS;
+}
+function isNearThreat(situation, unit) {
+  return nearestDistance(situation.enemyUnits, unit) <= DEFEND_GROUP_RADIUS;
+}
+
+// ターン開始時に、現在の作戦モードに応じて仮想的な「作戦グループ」を複数生成する。
 // 正式な部隊クラスは持たず、対象ユニットの一覧と共通目標を持つだけの軽量な構造。
-// グループに属さないユニットは従来通り個別に判断される(group bonus は 0 のまま)。
+// 各ユニットは最初に条件が合ったグループにのみ所属し(1ユニット1グループ)、
+// どのグループにも属さないユニットは従来通り個別に判断される(group bonus は 0 のまま)。
 function formGroups(state, situation) {
   const mode = situation.strategy.mode;
+  const assigned = new Set();
   const groups = [];
 
+  function tryFormGroup(purpose, label, memberFilter, targetPicker) {
+    const members = situation.ownUnits.filter((u) => !assigned.has(u.id) && memberFilter(u));
+    if (members.length === 0) return;
+    const target = targetPicker(members);
+    if (!target) return;
+    for (const u of members) assigned.add(u.id);
+    groups.push({ id: `${purpose}-1`, purpose, label, members, target });
+  }
+
   if (mode === "ATTACK") {
-    const tanks = situation.ownUnits.filter((u) => u.type === "tank");
-    if (tanks.length > 0) {
-      groups.push({
-        id: "attack-1",
-        purpose: "attack",
-        label: "攻撃グループ",
-        members: tanks,
-        target: pickAttackTarget(state, situation, tanks),
-      });
-    }
+    // 戦車中心の攻撃グループ(敵主力/敵工場/敵首都攻略)
+    tryFormGroup("attack", "攻撃グループ", (u) => u.type === "tank", (members) => pickAttackTarget(state, situation, members));
+    // 残りの兵士は都市・工場占領へ
+    tryFormGroup("capture", "占領グループ", (u) => u.type === "soldier", (members) => pickCaptureTarget(situation, members));
+    // それでも残った、首都付近のユニットは防衛に回す
+    tryFormGroup("defend", "防衛グループ", (u) => isNearCapital(situation, u), () => capitalTarget(situation));
   } else if (mode === "EXPAND") {
-    const soldiers = situation.ownUnits.filter((u) => u.type === "soldier");
-    const target = soldiers.length > 0 ? pickExpandTarget(situation, soldiers) : null;
-    if (target) {
-      groups.push({
-        id: "expand-1",
-        purpose: "expand",
-        label: "占領グループ",
-        members: soldiers,
-        target,
-      });
-    }
-  } else if (mode === "DEFEND" || mode === "RECOVER") {
-    const nearCapital = situation.ownUnits.filter(
-      (u) => manhattan(u, situation.ownCapital) <= DEFEND_GROUP_RADIUS
-    );
-    if (nearCapital.length > 0) {
-      groups.push({
-        id: "defend-1",
-        purpose: "defend",
-        label: mode === "RECOVER" ? "再建グループ" : "防衛グループ",
-        members: nearCapital,
-        target: { row: situation.ownCapital.row, col: situation.ownCapital.col, label: "自軍首都" },
-      });
-    }
+    // 兵士は未占領都市の確保へ
+    tryFormGroup("capture", "占領グループ", (u) => u.type === "soldier", (members) => pickCaptureTarget(situation, members));
+    // 首都付近のユニットは確保済み拠点の維持(防衛)に回す
+    tryFormGroup("defend", "防衛グループ", (u) => isNearCapital(situation, u), () => capitalTarget(situation));
+  } else if (mode === "DEFEND") {
+    // 脅威に近いユニットは迎撃(侵攻部隊の撃破)へ
+    tryFormGroup("intercept", "迎撃グループ", (u) => isNearThreat(situation, u), (members) => pickInterceptTarget(situation, members));
+    // 残りの首都付近のユニットは首都防衛へ
+    tryFormGroup("defend", "防衛グループ", (u) => isNearCapital(situation, u), () => capitalTarget(situation));
+  } else if (mode === "RECOVER") {
+    // 立て直し中は首都付近に戦力を集約するのみ(単一グループ)
+    tryFormGroup("defend", "再建グループ", (u) => isNearCapital(situation, u), () => capitalTarget(situation));
   }
 
   return groups;
@@ -503,20 +543,64 @@ function applyStrategyBonus(candidates, mode) {
   }
 }
 
-// 候補1件分の連携度を評価する。所属グループの目標へ近づくか、移動後に味方の支援圏内にいるかを見る。
-function computeGroupBonus(unit, candidate, group, situation) {
+// グループの目的(purpose)ごとに異なる加減点を行う。intercept は attack の基準を流用する。
+function computePurposeBonus(state, unit, candidate, group, dest) {
+  const purpose = group.purpose === "intercept" ? "attack" : group.purpose;
+  const table = GROUP_PURPOSE_SCORE[purpose];
+  if (!table) return { bonus: 0, notes: [] };
+
+  let bonus = 0;
+  const notes = [];
+  const beforeDist = manhattan(unit, group.target);
+  const afterDist = manhattan(dest, group.target);
+
+  if (purpose === "attack") {
+    if (afterDist < beforeDist) {
+      bonus += table.APPROACH_TARGET;
+      notes.push("設定された敵目標へ接近");
+    }
+    const nearGroupAllies = group.members.some((u) => u.id !== unit.id && manhattan(u, dest) <= SUPPORT_RANGE * 2);
+    if (nearGroupAllies) {
+      bonus += table.MAINTAIN_ALLY_DISTANCE;
+      notes.push("同じ攻撃グループの味方と距離維持");
+    }
+  } else if (purpose === "capture") {
+    if (afterDist < beforeDist) {
+      bonus += table.APPROACH_TARGET;
+      notes.push("目標都市へ接近");
+    }
+    if (candidate.kind === "capture") {
+      bonus += table.FAST_CAPTURE;
+      notes.push("占領可能ターン短縮");
+    }
+    if (candidate.kind === "attack") {
+      bonus += table.UNNECESSARY_COMBAT;
+      notes.push("不要な戦闘");
+    }
+  } else if (purpose === "defend") {
+    if (afterDist < beforeDist) {
+      bonus += table.APPROACH_TARGET;
+      notes.push("防衛対象へ接近");
+    } else if (afterDist > beforeDist) {
+      bonus += table.LEAVE_TARGET;
+      notes.push("防衛対象から離れる");
+    }
+    const terrain = terrainAt(state, dest.row, dest.col);
+    if (terrain.defense > 0) {
+      bonus += table.DEFENSIVE_TERRAIN;
+      notes.push("防御地形へ配置");
+    }
+  }
+
+  return { bonus, notes };
+}
+
+// 候補1件分の連携度を評価する。まず全ユニット共通の孤立/連携チェックを行い、
+// 所属グループがあればその目的(attack/capture/defend)に応じた加減点を追加する。
+function computeGroupBonus(state, unit, candidate, group, situation) {
   let bonus = 0;
   const notes = [];
   const dest = { row: candidate.entry.row, col: candidate.entry.col };
-
-  if (group && group.target) {
-    const beforeDist = manhattan(unit, group.target);
-    const afterDist = manhattan(dest, group.target);
-    if (afterDist < beforeDist) {
-      bonus += GROUP_SCORE.SAME_TARGET;
-      notes.push("同じ目標へ前進");
-    }
-  }
 
   const alliesNearNow = situation.ownUnits.filter((u) => u.id !== unit.id && manhattan(u, unit) <= SUPPORT_RANGE).length;
   const alliesNearDest = situation.ownUnits.filter((u) => u.id !== unit.id && manhattan(u, dest) <= SUPPORT_RANGE).length;
@@ -538,12 +622,18 @@ function computeGroupBonus(unit, candidate, group, situation) {
     notes.push("支援可能な味方がいる");
   }
 
+  if (group && group.target) {
+    const purposeResult = computePurposeBonus(state, unit, candidate, group, dest);
+    bonus += purposeResult.bonus;
+    notes.push(...purposeResult.notes);
+  }
+
   return { bonus, notes };
 }
 
-function applyGroupBonus(candidates, unit, group, situation) {
+function applyGroupBonus(candidates, state, unit, group, situation) {
   for (const c of candidates) {
-    const { bonus, notes } = computeGroupBonus(unit, c, group, situation);
+    const { bonus, notes } = computeGroupBonus(state, unit, c, group, situation);
     c.groupBonus = bonus;
     c.groupNotes = notes;
     c.score += bonus;
@@ -577,7 +667,7 @@ function decideUnitAction(state, unit, situation) {
   applyStrategyBonus(candidates, situation.strategy.mode);
 
   const group = situation.unitGroupMap.get(unit.id) || null;
-  applyGroupBonus(candidates, unit, group, situation);
+  applyGroupBonus(candidates, state, unit, group, situation);
 
   candidates.sort((a, b) => b.score - a.score);
   const chosen = candidates[0];
