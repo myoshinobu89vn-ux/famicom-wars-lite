@@ -46,6 +46,17 @@ const STRATEGY_THRESHOLDS = {
 const STRATEGY_BONUS = 50;
 const STRATEGY_PENALTY = -30;
 
+// 複数ユニット連携(作戦グループ)関連の設定
+const SUPPORT_RANGE = 2; // この距離以内に生存中の味方がいれば「支援可能」とみなす
+const DEFEND_GROUP_RADIUS = 4; // 自軍首都からこの距離以内のユニットを防衛/再建グループに含める
+const GROUP_SCORE = {
+  SAME_TARGET: 30, // 所属グループの目標へ近づく
+  CLOSER_TO_ALLIES: 20, // 移動後、味方との距離が今より近くなる
+  ISOLATED: -30, // 移動後、周囲に生存中の味方が誰もいない
+  SUPPORTED: 20, // 移動後、周囲に生存中の味方が1体以上いる
+  SOLO_ASSAULT: -50, // 孤立した状態での攻撃(単独突撃)への追加減点
+};
+
 const ADJACENT_OFFSETS = [
   [-1, 0],
   [1, 0],
@@ -59,16 +70,27 @@ function logStrategy(strategy) {
   console.debug(`[AI Strategy]\nmode: ${strategy.mode}\nreason:\n${reasonLines}`);
 }
 
-function logDecision(unit, candidate) {
+function logDecision(unit, candidate, group) {
   if (!AI_DEBUG) return;
-  const tag = `${UNIT_TYPES[unit.type].label}#${unit.id}`;
+  const tag = `${UNIT_TYPES[unit.type].label}#${unit.id}${group ? ` [${group.label}]` : ""}`;
+  const groupNoteText =
+    candidate.groupNotes && candidate.groupNotes.length ? ` (${candidate.groupNotes.join(", ")})` : "";
   console.debug(
     `[AI Decision] ${tag}:\n` +
       `${candidate.label}${candidate.detail ? ` (${candidate.detail})` : ""}\n` +
       `base score: ${candidate.baseScore}\n` +
       `strategy bonus: ${candidate.strategyBonus}\n` +
+      `group bonus: ${candidate.groupBonus}${groupNoteText}\n` +
       `total: ${candidate.score}`
   );
+}
+
+function logGroups(groups) {
+  if (!AI_DEBUG || groups.length === 0) return;
+  for (const g of groups) {
+    const memberLines = g.members.map((u) => `- ${UNIT_TYPES[u.type].label}#${u.id}`).join("\n");
+    console.debug(`[AI Group] ${g.label}\nMembers:\n${memberLines}\nTarget:\n${g.target.label}(${g.target.row},${g.target.col})`);
+  }
 }
 
 // 攻撃側の種別と防御側の地形防御力からダメージを算出する(combat.js の resolveAttack と同じ式)
@@ -168,6 +190,94 @@ function decideStrategy(situation) {
   }
 
   return { mode, reasons, ownPower, enemyPower, powerRatio, capitalThreatened };
+}
+
+// ユニット群の重心座標(グループの目標選定・支援判定に使う)
+function centroidOf(units) {
+  const row = Math.round(units.reduce((sum, u) => sum + u.row, 0) / units.length);
+  const col = Math.round(units.reduce((sum, u) => sum + u.col, 0) / units.length);
+  return { row, col };
+}
+
+// 攻撃グループの目標: 敵首都 or 敵の生産拠点(工場)のうち、戦車部隊の重心から最も近いもの
+function pickAttackTarget(state, situation, members) {
+  const centroid = centroidOf(members);
+  const candidates = situation.captureTargets.filter(
+    (t) => t.isEnemyCapital || TERRAIN[state.map[t.row][t.col]].producible
+  );
+  if (candidates.length === 0) {
+    return { row: situation.enemyCapital.row, col: situation.enemyCapital.col, label: "敵首都" };
+  }
+  candidates.sort((a, b) => manhattan(centroid, a) - manhattan(centroid, b));
+  const best = candidates[0];
+  return { row: best.row, col: best.col, label: best.isEnemyCapital ? "敵首都" : "敵工場" };
+}
+
+// 占領グループの目標: 敵首都を除く未占領の占領可能地形のうち、歩兵部隊の重心から最も近いもの
+function pickExpandTarget(situation, members) {
+  const centroid = centroidOf(members);
+  const candidates = situation.captureTargets.filter((t) => !t.isEnemyCapital);
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => manhattan(centroid, a) - manhattan(centroid, b));
+  const best = candidates[0];
+  return { row: best.row, col: best.col, label: "未占領都市" };
+}
+
+// ターン開始時に、現在の作戦モードに応じて仮想的な「作戦グループ」を生成する。
+// 正式な部隊クラスは持たず、対象ユニットの一覧と共通目標を持つだけの軽量な構造。
+// グループに属さないユニットは従来通り個別に判断される(group bonus は 0 のまま)。
+function formGroups(state, situation) {
+  const mode = situation.strategy.mode;
+  const groups = [];
+
+  if (mode === "ATTACK") {
+    const tanks = situation.ownUnits.filter((u) => u.type === "tank");
+    if (tanks.length > 0) {
+      groups.push({
+        id: "attack-1",
+        purpose: "attack",
+        label: "攻撃グループ",
+        members: tanks,
+        target: pickAttackTarget(state, situation, tanks),
+      });
+    }
+  } else if (mode === "EXPAND") {
+    const soldiers = situation.ownUnits.filter((u) => u.type === "soldier");
+    const target = soldiers.length > 0 ? pickExpandTarget(situation, soldiers) : null;
+    if (target) {
+      groups.push({
+        id: "expand-1",
+        purpose: "expand",
+        label: "占領グループ",
+        members: soldiers,
+        target,
+      });
+    }
+  } else if (mode === "DEFEND" || mode === "RECOVER") {
+    const nearCapital = situation.ownUnits.filter(
+      (u) => manhattan(u, situation.ownCapital) <= DEFEND_GROUP_RADIUS
+    );
+    if (nearCapital.length > 0) {
+      groups.push({
+        id: "defend-1",
+        purpose: "defend",
+        label: mode === "RECOVER" ? "再建グループ" : "防衛グループ",
+        members: nearCapital,
+        target: { row: situation.ownCapital.row, col: situation.ownCapital.col, label: "自軍首都" },
+      });
+    }
+  }
+
+  return groups;
+}
+
+// unitId → 所属グループ の参照テーブルを構築する(1ターン分)
+function buildUnitGroupMap(groups) {
+  const map = new Map();
+  for (const g of groups) {
+    for (const u of g.members) map.set(u.id, g);
+  }
+  return map;
 }
 
 // destRow,destCol に移動した場合、隣接する敵ユニットからどれだけ反撃を受けうるかを見積もる
@@ -393,7 +503,55 @@ function applyStrategyBonus(candidates, mode) {
   }
 }
 
-// ユニット1体分の行動を評価値方式で決定する(候補を全て生成→作戦補正→最高評価を採用)
+// 候補1件分の連携度を評価する。所属グループの目標へ近づくか、移動後に味方の支援圏内にいるかを見る。
+function computeGroupBonus(unit, candidate, group, situation) {
+  let bonus = 0;
+  const notes = [];
+  const dest = { row: candidate.entry.row, col: candidate.entry.col };
+
+  if (group && group.target) {
+    const beforeDist = manhattan(unit, group.target);
+    const afterDist = manhattan(dest, group.target);
+    if (afterDist < beforeDist) {
+      bonus += GROUP_SCORE.SAME_TARGET;
+      notes.push("同じ目標へ前進");
+    }
+  }
+
+  const alliesNearNow = situation.ownUnits.filter((u) => u.id !== unit.id && manhattan(u, unit) <= SUPPORT_RANGE).length;
+  const alliesNearDest = situation.ownUnits.filter((u) => u.id !== unit.id && manhattan(u, dest) <= SUPPORT_RANGE).length;
+
+  if (alliesNearDest > alliesNearNow) {
+    bonus += GROUP_SCORE.CLOSER_TO_ALLIES;
+    notes.push("味方との距離が近づく");
+  }
+
+  if (alliesNearDest === 0) {
+    bonus += GROUP_SCORE.ISOLATED;
+    notes.push("孤立する行動");
+    if (candidate.kind === "attack") {
+      bonus += GROUP_SCORE.SOLO_ASSAULT;
+      notes.push("単独で敵主力へ突撃");
+    }
+  } else {
+    bonus += GROUP_SCORE.SUPPORTED;
+    notes.push("支援可能な味方がいる");
+  }
+
+  return { bonus, notes };
+}
+
+function applyGroupBonus(candidates, unit, group, situation) {
+  for (const c of candidates) {
+    const { bonus, notes } = computeGroupBonus(unit, c, group, situation);
+    c.groupBonus = bonus;
+    c.groupNotes = notes;
+    c.score += bonus;
+  }
+}
+
+// ユニット1体分の行動を評価値方式で決定する
+// (候補を全て生成→作戦補正→グループ連携補正→最高評価を採用)
 function decideUnitAction(state, unit, situation) {
   const movePoints = UNIT_TYPES[unit.type].move;
   const occupied = occupiedKeysExcluding(state, unit.id);
@@ -417,9 +575,13 @@ function decideUnitAction(state, unit, situation) {
   candidates.push(generateWaitCandidate(unit, reachable));
 
   applyStrategyBonus(candidates, situation.strategy.mode);
+
+  const group = situation.unitGroupMap.get(unit.id) || null;
+  applyGroupBonus(candidates, unit, group, situation);
+
   candidates.sort((a, b) => b.score - a.score);
   const chosen = candidates[0];
-  logDecision(unit, chosen);
+  logDecision(unit, chosen, group);
   return chosen;
 }
 
@@ -487,6 +649,8 @@ function decideAndRunProduction(state, situation) {
 function createAIController(state, faction) {
   const situation = analyzeSituation(state, faction);
   situation.strategy = decideStrategy(situation);
+  situation.groups = formGroups(state, situation);
+  situation.unitGroupMap = buildUnitGroupMap(situation.groups);
 
   async function takeTurn(animateMove) {
     if (AI_DEBUG) {
@@ -494,6 +658,7 @@ function createAIController(state, faction) {
         `[AI] === ターン${state.turn} ${faction}軍 状況分析 === 所持金${situation.money}G 自軍${situation.ownUnits.length}体 敵軍${situation.enemyUnits.length}体`
       );
       logStrategy(situation.strategy);
+      logGroups(situation.groups);
     }
 
     for (const unit of situation.ownUnits) {
