@@ -80,48 +80,158 @@ export const UNIT_TYPES = {
   },
 };
 
-// マップ座標は [row][col]。8列×9行の縦長マップ(iPhone縦持ち画面向け)。
-// 首都・工場の位置は INITIAL_SETUP 側で上書きする。
-const layoutKeys = [
-  "PPPPPPPP",
-  "PFFPPFFP",
-  "PFCPPCFP",
-  "PPPWWPPP",
-  "PPPCCPPP",
-  "PPPWWPPP",
-  "PFCPPCFP",
-  "PFFPPFFP",
-  "PPPPPPPP",
-];
+// マップ座標は [row][col]。マップごとに layoutKeys(地形文字列)+legend(文字→地形ID)+
+// initialSetup(首都・工場・初期ユニット)を1セットの定義として MAP_DEFS にまとめ、
+// selectMap() で切り替える。首都・工場の座標は各マップの initialSetup 側で上書きする
+// (従来どおり。地形文字列自体には首都/自軍所有工場を表す文字は含めない)。
+const MAP_DEFS = {
+  // 従来からの標準マップ(8列×9行、iPhone縦持ち画面向け)。デフォルト選択。
+  classic: {
+    label: "デフォルトマップ",
+    legend: { P: "PLAIN", F: "FOREST", W: "WATER", C: "CITY" },
+    layoutKeys: [
+      "PPPPPPPP",
+      "PFFPPFFP",
+      "PFCPPCFP",
+      "PPPWWPPP",
+      "PPPCCPPP",
+      "PPPWWPPP",
+      "PFCPPCFP",
+      "PFFPPFFP",
+      "PPPPPPPP",
+    ],
+    initialSetup: {
+      player: {
+        capital: { row: 0, col: 0 },
+        factory: { row: 0, col: 7 },
+        units: [{ type: "soldier", row: 1, col: 3 }],
+      },
+      cpu: {
+        capital: { row: 8, col: 7 },
+        factory: { row: 8, col: 0 },
+        units: [{ type: "soldier", row: 7, col: 4 }],
+      },
+    },
+  },
 
-const keyToTerrain = {
-  P: "PLAIN",
-  F: "FOREST",
-  W: "WATER",
-  C: "CITY",
+  // Map1: 中央突破作戦(12×12・標準プレイ用)。左右対称・上下は180度回転対称で
+  // 両軍の条件を完全に同等にしてある。中央に争奪価値の高い都市クラスタ、
+  // 両軍それぞれの前線寄りに中立工場を2つずつ配置し、森と川で進軍ルートに
+  // 選択肢を作る。
+  centralBreakthrough: {
+    label: "中央突破作戦",
+    legend: { ".": "PLAIN", T: "FOREST", "~": "WATER", C: "CITY", F: "FACTORY" },
+    layoutKeys: [
+      "...T....T...",
+      ".C........C.",
+      "..F..~~..F..",
+      "T....~~....T",
+      "..C.T..T.C..",
+      ".....CC.....",
+      ".....CC.....",
+      "..C.T..T.C..",
+      "T....~~....T",
+      "..F..~~..F..",
+      ".C........C.",
+      "...T....T...",
+    ],
+    initialSetup: {
+      player: {
+        capital: { row: 0, col: 0 },
+        factory: { row: 0, col: 11 },
+        units: [
+          { type: "soldier", row: 1, col: 3 },
+          { type: "soldier", row: 1, col: 8 },
+          { type: "tank", row: 2, col: 4 },
+        ],
+      },
+      cpu: {
+        capital: { row: 11, col: 11 },
+        factory: { row: 11, col: 0 },
+        units: [
+          { type: "soldier", row: 10, col: 8 },
+          { type: "soldier", row: 10, col: 3 },
+          { type: "tank", row: 9, col: 7 },
+        ],
+      },
+    },
+  },
+
+  // Map2: 二正面作戦(12×12・AI評価用)。中央を川で分断し、価値目標(都市・工場)を
+  // 左右両翼と自軍領内奥に分散配置。一方向への戦力集中だけでは両翼を同時に守れない
+  // 構造にし、複数作戦グループ・Threat Mapによる防衛判断・ミッション継続を評価する。
+  twoFront: {
+    label: "二正面作戦",
+    legend: { ".": "PLAIN", T: "FOREST", "~": "WATER", C: "CITY", F: "FACTORY" },
+    layoutKeys: [
+      "....T..T....",
+      ".C........C.",
+      "..F......F..",
+      "....~~~~....",
+      "....~~~~....",
+      "C..........C",
+      "C..........C",
+      "....~~~~....",
+      "....~~~~....",
+      "..F......F..",
+      ".C........C.",
+      "....T..T....",
+    ],
+    initialSetup: {
+      player: {
+        capital: { row: 0, col: 0 },
+        factory: { row: 0, col: 11 },
+        units: [
+          { type: "soldier", row: 2, col: 1 },
+          { type: "soldier", row: 2, col: 10 },
+          { type: "tank", row: 1, col: 5 },
+        ],
+      },
+      cpu: {
+        capital: { row: 11, col: 11 },
+        factory: { row: 11, col: 0 },
+        units: [
+          { type: "soldier", row: 9, col: 10 },
+          { type: "soldier", row: 9, col: 1 },
+          { type: "tank", row: 10, col: 6 },
+        ],
+      },
+    },
+  },
 };
 
-export const MAP_ROWS = layoutKeys.length;
-export const MAP_COLS = layoutKeys[0].length;
+let currentMapId = "classic";
 
-export function buildMap() {
-  return layoutKeys.map((rowStr) =>
-    rowStr.split("").map((ch) => keyToTerrain[ch])
-  );
+// 選択可能なマップ一覧({id, label}[])。UI側のマップ選択メニュー用。
+export function listMaps() {
+  return Object.entries(MAP_DEFS).map(([id, def]) => ({ id, label: def.label }));
 }
 
-// 初期配置: プレイヤーは北端(上)、CPUは南端(下)に首都・工場を配置
-export const INITIAL_SETUP = {
-  player: {
-    capital: { row: 0, col: 0 },
-    factory: { row: 0, col: MAP_COLS - 1 },
-    units: [{ type: "soldier", row: 1, col: 3 }],
-  },
-  cpu: {
-    capital: { row: MAP_ROWS - 1, col: MAP_COLS - 1 },
-    factory: { row: MAP_ROWS - 1, col: 0 },
-    units: [{ type: "soldier", row: MAP_ROWS - 2, col: MAP_COLS - 4 }],
-  },
-};
+export function getCurrentMapId() {
+  return currentMapId;
+}
+
+// マップを切り替える。以降の buildMap()/MAP_ROWS/MAP_COLS/INITIAL_SETUP は
+// 選択中マップの内容を返す(createInitialState() より前に呼ぶこと)。
+export function selectMap(id) {
+  if (!MAP_DEFS[id]) throw new Error(`未知のマップID: ${id}`);
+  currentMapId = id;
+  const def = MAP_DEFS[id];
+  MAP_ROWS = def.layoutKeys.length;
+  MAP_COLS = def.layoutKeys[0].length;
+  INITIAL_SETUP = def.initialSetup;
+}
+
+export function buildMap() {
+  const def = MAP_DEFS[currentMapId];
+  return def.layoutKeys.map((rowStr) => rowStr.split("").map((ch) => def.legend[ch]));
+}
+
+// MAP_ROWS/MAP_COLS/INITIAL_SETUP は selectMap() で切り替わるライブバインディング。
+// state.js/grid.js/ai.js/render.js はいずれも関数内で都度参照しているため、
+// これらのファイルを変更せずにマップ切替に追従できる。
+export let MAP_ROWS = MAP_DEFS[currentMapId].layoutKeys.length;
+export let MAP_COLS = MAP_DEFS[currentMapId].layoutKeys[0].length;
+export let INITIAL_SETUP = MAP_DEFS[currentMapId].initialSetup;
 
 export const STARTING_MONEY = 300;

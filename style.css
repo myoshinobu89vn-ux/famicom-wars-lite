@@ -31,6 +31,15 @@ html, body {
   flex-wrap: wrap;
 }
 
+#mapSelect {
+  background: #0f172a;
+  color: #f1f5f9;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 13px;
+}
+
 #statsBar {
   display: flex;
   gap: 8px;
