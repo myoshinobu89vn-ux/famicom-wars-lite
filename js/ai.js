@@ -1,4 +1,5 @@
-// CPU側AI: AIController が状況分析を行い、評価値方式で各ユニットの行動と生産を決定する
+// CPU側AI: AIController が状況分析→作戦モード決定を行い、評価値方式(+作戦補正)で
+// 各ユニットの行動と生産を決定する
 
 import { UNIT_TYPES, TERRAIN, MAP_ROWS, MAP_COLS } from "./data.js";
 import { computeReachable, manhattan, tileKey } from "./grid.js";
@@ -10,6 +11,7 @@ import {
   producibleTilesFor,
   produceUnit,
   opponentOf,
+  factionStats,
 } from "./state.js";
 import { resolveAttack, tryCapture } from "./combat.js";
 
@@ -32,6 +34,18 @@ const SCORE = {
   WAIT: 0,
 };
 
+// 作戦モード判定の閾値
+const STRATEGY_THRESHOLDS = {
+  CAPITAL_THREAT_DISTANCE: 3, // 自軍首都からこの距離以内に敵ユニットがいれば脅威とみなす
+  WEAK_POWER_RATIO: 0.65, // 戦力比がこれ未満なら劣勢
+  STRONG_POWER_RATIO: 1.4, // 戦力比がこれ以上なら優勢
+  EXPAND_TERRITORY_MIN: 2, // 未占領地(中立/敵地)がこの数以上残っていれば拡大余地ありとみなす
+};
+
+// 作戦目標への貢献度(候補生成の構造は変えず、生成後に一律で加減点する)
+const STRATEGY_BONUS = 50;
+const STRATEGY_PENALTY = -30;
+
 const ADJACENT_OFFSETS = [
   [-1, 0],
   [1, 0],
@@ -39,15 +53,41 @@ const ADJACENT_OFFSETS = [
   [0, 1],
 ];
 
-function logDecision(unit, label, score, detail) {
+function logStrategy(strategy) {
+  if (!AI_DEBUG) return;
+  const reasonLines = strategy.reasons.map((r) => `- ${r}`).join("\n");
+  console.debug(`[AI Strategy]\nmode: ${strategy.mode}\nreason:\n${reasonLines}`);
+}
+
+function logDecision(unit, candidate) {
   if (!AI_DEBUG) return;
   const tag = `${UNIT_TYPES[unit.type].label}#${unit.id}`;
-  console.debug(`[AI] ${tag}: ${label} 評価${score}${detail ? ` (${detail})` : ""}`);
+  console.debug(
+    `[AI Decision] ${tag}:\n` +
+      `${candidate.label}${candidate.detail ? ` (${candidate.detail})` : ""}\n` +
+      `base score: ${candidate.baseScore}\n` +
+      `strategy bonus: ${candidate.strategyBonus}\n` +
+      `total: ${candidate.score}`
+  );
 }
 
 // 攻撃側の種別と防御側の地形防御力からダメージを算出する(combat.js の resolveAttack と同じ式)
 function computeDamage(attackerTypeId, defenderTerrainDefense) {
   return Math.max(1, UNIT_TYPES[attackerTypeId].power - defenderTerrainDefense);
+}
+
+// ユニット群の大まかな戦力スコア(戦車は歩兵の2倍換算、HP割合で重み付け)
+function computePowerScore(units) {
+  return units.reduce((sum, u) => {
+    const weight = u.type === "tank" ? 2 : 1;
+    return sum + weight * (u.hp / UNIT_TYPES[u.type].hp);
+  }, 0);
+}
+
+// point に最も近いユニットとの距離(ユニットがいなければ Infinity)
+function nearestDistance(units, point) {
+  if (units.length === 0) return Infinity;
+  return Math.min(...units.map((u) => manhattan(u, point)));
 }
 
 // ターン開始時の状況分析。以降の全ユニット・生産判断で使い回す
@@ -56,6 +96,7 @@ function analyzeSituation(state, faction) {
   const ownUnits = state.units.filter((u) => u.faction === faction && u.hp > 0);
   const enemyUnits = state.units.filter((u) => u.faction === enemyFaction && u.hp > 0);
   const enemyCapital = state.capitalLocation[enemyFaction];
+  const ownCapital = state.capitalLocation[faction];
 
   const captureTargets = [];
   for (let r = 0; r < MAP_ROWS; r++) {
@@ -78,13 +119,55 @@ function analyzeSituation(state, faction) {
     enemyUnits,
     captureTargets,
     enemyCapital,
-    ownCapital: state.capitalLocation[faction],
+    ownCapital,
     money: state.money[faction],
+    enemyMoney: state.money[enemyFaction],
+    ownStats: factionStats(state, faction),
+    enemyStats: factionStats(state, enemyFaction),
     enemyTankCount: enemyUnits.filter((u) => u.type === "tank").length,
     enemySoldierCount: enemyUnits.filter((u) => u.type === "soldier").length,
     ownTankCount: ownUnits.filter((u) => u.type === "tank").length,
     ownSoldierCount: ownUnits.filter((u) => u.type === "soldier").length,
   };
+}
+
+// 戦況分析の結果から今ターンの作戦モードを決定する(EXPAND / ATTACK / DEFEND / RECOVER)
+function decideStrategy(situation) {
+  const reasons = [];
+  const ownPower = computePowerScore(situation.ownUnits);
+  const enemyPower = computePowerScore(situation.enemyUnits);
+  const powerRatio = ownPower / Math.max(enemyPower, 0.01);
+
+  const nearestEnemyToOwnCapital = nearestDistance(situation.enemyUnits, situation.ownCapital);
+  const nearestOwnToEnemyCapital = nearestDistance(situation.ownUnits, situation.enemyCapital);
+  const capitalThreatened = nearestEnemyToOwnCapital <= STRATEGY_THRESHOLDS.CAPITAL_THREAT_DISTANCE;
+
+  const ownTerritory = situation.ownStats.cities + situation.ownStats.factories;
+  const enemyTerritory = situation.enemyStats.cities + situation.enemyStats.factories;
+  const territoryRemaining = situation.captureTargets.length;
+
+  let mode;
+  if (capitalThreatened) {
+    mode = "DEFEND";
+    reasons.push(`own capital threatened (enemy unit ${nearestEnemyToOwnCapital} tiles away)`);
+  } else if (powerRatio <= STRATEGY_THRESHOLDS.WEAK_POWER_RATIO) {
+    mode = "RECOVER";
+    reasons.push(`force disadvantage (power ratio ${powerRatio.toFixed(2)})`);
+    if (situation.money < situation.enemyMoney) reasons.push(`money disadvantage (${situation.money}G vs ${situation.enemyMoney}G)`);
+  } else if (powerRatio >= STRATEGY_THRESHOLDS.STRONG_POWER_RATIO) {
+    mode = "ATTACK";
+    reasons.push(`own force advantage (power ratio ${powerRatio.toFixed(2)})`);
+    if (nearestOwnToEnemyCapital <= 5) reasons.push(`enemy capital exposed (${nearestOwnToEnemyCapital} tiles from our forces)`);
+  } else if (territoryRemaining >= STRATEGY_THRESHOLDS.EXPAND_TERRITORY_MIN || ownTerritory < enemyTerritory) {
+    mode = "EXPAND";
+    reasons.push(`${territoryRemaining} capturable tiles still unclaimed`);
+    if (ownTerritory < enemyTerritory) reasons.push(`behind in territory (own ${ownTerritory} vs enemy ${enemyTerritory})`);
+  } else {
+    mode = "ATTACK";
+    reasons.push("forces roughly balanced and little territory left, pressing the advantage");
+  }
+
+  return { mode, reasons, ownPower, enemyPower, powerRatio, capitalThreatened };
 }
 
 // destRow,destCol に移動した場合、隣接する敵ユニットからどれだけ反撃を受けうるかを見積もる
@@ -178,8 +261,9 @@ function generateCaptureCandidates(state, unit, reachable, ctx) {
   return candidates;
 }
 
-// 前進候補: 攻撃・占領ができない場合に、役割に応じた戦略目標へ近づく行動
-// 歩兵は未占領の占領可能地形を、戦車は敵主力(歩兵のみの相手を優先)や敵首都を目標にする
+// 前進候補: 攻撃・占領ができない場合に、役割(と作戦モード)に応じた戦略目標へ近づく行動
+// 歩兵は未占領の占領可能地形を、戦車は敵主力(歩兵のみの相手を優先)や敵首都を目標にする。
+// DEFEND時は自軍首都も候補目標に加える(retreatの受け皿)。
 function generateAdvanceCandidate(state, unit, reachable, ctx) {
   const targets = [];
 
@@ -189,15 +273,20 @@ function generateAdvanceCandidate(state, unit, reachable, ctx) {
         row: t.row,
         col: t.col,
         weight: t.isEnemyCapital ? SCORE.APPROACH_ENEMY_CAPITAL : SCORE.APPROACH_TARGET_STEP,
+        kind: t.isEnemyCapital ? "enemyCapital" : "captureTarget",
       });
     }
   } else {
     for (const enemy of ctx.enemyUnits) {
       const weight =
         enemy.type === "soldier" ? SCORE.APPROACH_TARGET_STEP + SCORE.SOFT_TARGET_BONUS / 4 : SCORE.APPROACH_TARGET_STEP;
-      targets.push({ row: enemy.row, col: enemy.col, weight });
+      targets.push({ row: enemy.row, col: enemy.col, weight, kind: "enemyUnit" });
     }
-    targets.push({ row: ctx.enemyCapital.row, col: ctx.enemyCapital.col, weight: SCORE.APPROACH_ENEMY_CAPITAL });
+    targets.push({ row: ctx.enemyCapital.row, col: ctx.enemyCapital.col, weight: SCORE.APPROACH_ENEMY_CAPITAL, kind: "enemyCapital" });
+  }
+
+  if (ctx.strategy.mode === "DEFEND") {
+    targets.push({ row: ctx.ownCapital.row, col: ctx.ownCapital.col, weight: SCORE.APPROACH_ENEMY_CAPITAL, kind: "ownCapital" });
   }
 
   if (targets.length === 0) return null;
@@ -234,6 +323,7 @@ function generateAdvanceCandidate(state, unit, reachable, ctx) {
     score,
     label: `(${best.entry.row},${best.entry.col})へ前進`,
     detail,
+    targetKind: target.kind,
   };
 }
 
@@ -252,7 +342,7 @@ function generateDefensiveCandidate(state, unit, reachable, ctx) {
   if (!best || best.risk.penalty >= currentRisk.penalty) return null; // より安全な場所が無ければ却下
 
   return {
-    kind: "move",
+    kind: "defend",
     entry: best.entry,
     score: SCORE.DEFENSIVE_REPOSITION + best.risk.penalty,
     label: `(${best.entry.row},${best.entry.col})へ防衛配置`,
@@ -270,7 +360,40 @@ function generateWaitCandidate(unit, reachable) {
   };
 }
 
-// ユニット1体分の行動を評価値方式で決定する(候補を全て生成し、最高評価を採用)
+// 候補生成の構造は変えず、生成し終えた候補一覧に作戦目標への貢献度だけを一括加点する
+function computeStrategyBonus(candidate, mode) {
+  switch (mode) {
+    case "EXPAND":
+      if (candidate.kind === "capture") return STRATEGY_BONUS;
+      if (candidate.kind === "move" && candidate.targetKind === "captureTarget") return Math.round(STRATEGY_BONUS / 2);
+      return 0;
+    case "ATTACK":
+      if (candidate.kind === "attack") return STRATEGY_BONUS;
+      if (candidate.kind === "move" && candidate.targetKind === "enemyCapital") return STRATEGY_BONUS;
+      return 0;
+    case "DEFEND":
+      if (candidate.kind === "defend") return STRATEGY_BONUS;
+      if (candidate.kind === "move" && candidate.targetKind === "ownCapital") return STRATEGY_BONUS;
+      if (candidate.kind === "attack" || candidate.kind === "capture") return STRATEGY_PENALTY;
+      return 0;
+    case "RECOVER":
+      if (candidate.kind === "defend") return Math.round(STRATEGY_BONUS / 2);
+      if (candidate.kind === "attack") return STRATEGY_PENALTY;
+      return 0;
+    default:
+      return 0;
+  }
+}
+
+function applyStrategyBonus(candidates, mode) {
+  for (const c of candidates) {
+    c.baseScore = c.score;
+    c.strategyBonus = computeStrategyBonus(c, mode);
+    c.score = c.baseScore + c.strategyBonus;
+  }
+}
+
+// ユニット1体分の行動を評価値方式で決定する(候補を全て生成→作戦補正→最高評価を採用)
 function decideUnitAction(state, unit, situation) {
   const movePoints = UNIT_TYPES[unit.type].move;
   const occupied = occupiedKeysExcluding(state, unit.id);
@@ -293,9 +416,10 @@ function decideUnitAction(state, unit, situation) {
 
   candidates.push(generateWaitCandidate(unit, reachable));
 
+  applyStrategyBonus(candidates, situation.strategy.mode);
   candidates.sort((a, b) => b.score - a.score);
   const chosen = candidates[0];
-  logDecision(unit, chosen.label, chosen.score, chosen.detail);
+  logDecision(unit, chosen);
   return chosen;
 }
 
@@ -312,9 +436,10 @@ async function executeUnitAction(state, unit, action, animateMove) {
   unit.moved = true;
 }
 
-// 工場・首都での生産を状況に応じて決定する(資金・敵戦力・序盤かどうかを考慮)
+// 工場・首都での生産を状況(資金・敵戦力・作戦モード)に応じて決定する
 function decideAndRunProduction(state, situation) {
   const faction = situation.faction;
+  const mode = situation.strategy.mode;
   const isEarlyGame = state.turn <= 3;
 
   for (const tile of producibleTilesFor(state, faction)) {
@@ -327,15 +452,18 @@ function decideAndRunProduction(state, situation) {
 
     // 敵戦車の数が自軍を上回っていれば対抗して戦車を優先する
     const needsTankCounter = situation.enemyTankCount > situation.ownTankCount;
+    // 序盤 or EXPAND/RECOVER中は、対抗の必要がなければ低コストな歩兵で数を揃える
+    const preferInfantry = (isEarlyGame || mode === "EXPAND" || mode === "RECOVER") && !needsTankCounter;
 
     let type;
     let reason;
-    if (isEarlyGame && canAffordSoldier && !needsTankCounter) {
+    if (preferInfantry && canAffordSoldier) {
       type = "soldier";
-      reason = "序盤は歩兵で領土拡大を優先";
-    } else if (canAffordTank && (needsTankCounter || !isEarlyGame)) {
+      reason =
+        mode === "RECOVER" ? "戦力再建のため低コストな歩兵を優先" : mode === "EXPAND" ? "領土拡大のため歩兵を優先" : "序盤は歩兵で領土拡大を優先";
+    } else if (canAffordTank && (needsTankCounter || !preferInfantry)) {
       type = "tank";
-      reason = needsTankCounter ? "敵戦車に対抗" : "戦力強化";
+      reason = needsTankCounter ? "敵戦車に対抗" : mode === "ATTACK" ? "攻勢のため戦車を増強" : "戦力強化";
     } else if (canAffordSoldier) {
       type = "soldier";
       reason = "資金不足のため歩兵を生産";
@@ -354,15 +482,18 @@ function decideAndRunProduction(state, situation) {
   }
 }
 
-// AI司令部: ターン開始時に状況分析を行い、各ユニットの役割と評価値に基づいて行動する
+// AI司令部: ターン開始時に状況分析→作戦モード決定を行い、各ユニットの役割と評価値
+// (+作戦目標への貢献度)に基づいて行動する
 function createAIController(state, faction) {
   const situation = analyzeSituation(state, faction);
+  situation.strategy = decideStrategy(situation);
 
   async function takeTurn(animateMove) {
     if (AI_DEBUG) {
       console.debug(
         `[AI] === ターン${state.turn} ${faction}軍 状況分析 === 所持金${situation.money}G 自軍${situation.ownUnits.length}体 敵軍${situation.enemyUnits.length}体`
       );
+      logStrategy(situation.strategy);
     }
 
     for (const unit of situation.ownUnits) {
