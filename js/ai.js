@@ -76,6 +76,11 @@ const GROUP_PURPOSE_SCORE = {
   },
 };
 
+// 作戦(作戦グループの目標)をターンをまたいで維持する価値
+const MISSION_BONUS = 30; // 同じ作戦目標へ近づく
+const MISSION_PENALTY = -30; // 現在の作戦目標から遠ざかる
+const MISSION_CRITICAL_BONUS = 50; // 作戦目標そのものへの占領/攻撃など、達成に直結する行動
+
 const ADJACENT_OFFSETS = [
   [-1, 0],
   [1, 0],
@@ -94,12 +99,15 @@ function logDecision(unit, candidate, group) {
   const tag = `${UNIT_TYPES[unit.type].label}#${unit.id}${group ? ` [${group.label}]` : ""}`;
   const groupNoteText =
     candidate.groupNotes && candidate.groupNotes.length ? ` (${candidate.groupNotes.join(", ")})` : "";
+  const missionNoteText =
+    candidate.missionNotes && candidate.missionNotes.length ? ` (${candidate.missionNotes.join(", ")})` : "";
   console.debug(
     `[AI Decision] ${tag}:\n` +
       `${candidate.label}${candidate.detail ? ` (${candidate.detail})` : ""}\n` +
       `base score: ${candidate.baseScore}\n` +
       `strategy bonus: ${candidate.strategyBonus}\n` +
       `group bonus: ${candidate.groupBonus}${groupNoteText}\n` +
+      `mission bonus: ${candidate.missionBonus}${missionNoteText}\n` +
       `total: ${candidate.score}`
   );
 }
@@ -109,13 +117,39 @@ function logGroups(groups) {
   const blocks = groups.map((g, i) => {
     const memberLines = g.members.map((u) => `- ${UNIT_TYPES[u.type].label}#${u.id}`).join("\n");
     return (
-      `Group ${i + 1}: ${g.label}\n` +
+      `Group ${i + 1}: ${g.label} (ID:${g.id}, ターン${g.createdTurn}〜)\n` +
       `type: ${g.purpose.toUpperCase()}\n` +
       `target: ${g.target.label}(${g.target.row},${g.target.col})\n` +
       `members:\n${memberLines}`
     );
   });
   console.debug(`[AI Groups]\n\n${blocks.join("\n\n")}`);
+}
+
+// 永続グループの継続/変更/破棄/新規/増援を [AI Mission] としてログ出力する
+function logMissionReviews(missionLogs) {
+  if (!AI_DEBUG || missionLogs.length === 0) return;
+  for (const entry of missionLogs) {
+    if (entry.status === "CHANGED") {
+      console.debug(
+        `[AI Mission]\n` +
+          `Group ID: ${entry.group.id}\n` +
+          `Status: CHANGED\n` +
+          `Old target:\n${entry.oldTarget.label}(${entry.oldTarget.row},${entry.oldTarget.col})\n` +
+          `New target:\n${entry.newTarget.label}(${entry.newTarget.row},${entry.newTarget.col})\n` +
+          `Reason:\n${entry.reasons.join(", ")}`
+      );
+    } else {
+      console.debug(
+        `[AI Mission]\n` +
+          `Group ID: ${entry.group.id}\n` +
+          `Type: ${entry.group.purpose.toUpperCase()}\n` +
+          `Target: ${entry.group.target.label}(${entry.group.target.row},${entry.group.target.col})\n` +
+          `Status: ${entry.status}\n` +
+          `Reason:\n${entry.reasons.map((r) => `- ${r}`).join("\n")}`
+      );
+    }
+  }
 }
 
 // 攻撃側の種別と防御側の地形防御力からダメージを算出する(combat.js の resolveAttack と同じ式)
@@ -135,6 +169,15 @@ function computePowerScore(units) {
 function nearestDistance(units, point) {
   if (units.length === 0) return Infinity;
   return Math.min(...units.map((u) => manhattan(u, point)));
+}
+
+// 作戦グループをターンをまたいで保持するための永続領域。state 自体はゲーム開始/リスタートの
+// たびに createInitialState() で新規作成されるため、_aiMemory も自然にリセットされる。
+// state.js / main.js には一切手を入れず、ai.js だけで完結させる。
+function getAiMemory(state, faction) {
+  if (!state._aiMemory) state._aiMemory = {};
+  if (!state._aiMemory[faction]) state._aiMemory[faction] = { groups: [], nextGroupId: 1 };
+  return state._aiMemory[faction];
 }
 
 // ターン開始時の状況分析。以降の全ユニット・生産判断で使い回す
@@ -268,47 +311,162 @@ function isNearThreat(situation, unit) {
   return nearestDistance(situation.enemyUnits, unit) <= DEFEND_GROUP_RADIUS;
 }
 
-// ターン開始時に、現在の作戦モードに応じて仮想的な「作戦グループ」を複数生成する。
-// 正式な部隊クラスは持たず、対象ユニットの一覧と共通目標を持つだけの軽量な構造。
-// 各ユニットは最初に条件が合ったグループにのみ所属し(1ユニット1グループ)、
-// どのグループにも属さないユニットは従来通り個別に判断される(group bonus は 0 のまま)。
-function formGroups(state, situation) {
+// グループの目標をすでに達成したか(=目標地形を自軍が占領済みか、迎撃対象が消えたか)
+function isGroupTargetAchieved(state, situation, group) {
+  if (group.purpose === "attack" || group.purpose === "capture") {
+    if (ownerAt(state, group.target.row, group.target.col) === situation.faction) return true;
+  }
+  if (group.purpose === "intercept") {
+    const stillThere = situation.enemyUnits.some((u) => u.row === group.target.row && u.col === group.target.col);
+    if (!stillThere) return true;
+  }
+  return false;
+}
+
+// 目標付近の敵戦力に対し、グループの残存戦力が著しく劣っていれば無理に攻略を続けさせない
+function isGroupOverwhelmed(situation, group) {
+  if (group.purpose !== "attack" && group.purpose !== "intercept") return false;
+  const groupPower = computePowerScore(group.members);
+  const nearbyEnemyPower = computePowerScore(
+    situation.enemyUnits.filter((u) => manhattan(u, group.target) <= DEFEND_GROUP_RADIUS)
+  );
+  return nearbyEnemyPower > 0 && groupPower / nearbyEnemyPower < STRATEGY_THRESHOLDS.WEAK_POWER_RATIO;
+}
+
+// 現在の目標を維持すべきか、より重要/近い目標へ切り替えるべきかを判定する
+function reevaluateTarget(state, situation, group) {
+  let idealTarget = null;
+  if (group.purpose === "attack") idealTarget = pickAttackTarget(state, situation, group.members);
+  else if (group.purpose === "capture") idealTarget = pickCaptureTarget(situation, group.members);
+  else if (group.purpose === "intercept") idealTarget = pickInterceptTarget(situation, group.members);
+  else return { changed: false, reasons: ["防衛対象は固定"] };
+
+  if (!idealTarget) return { changed: false, reasons: ["代替目標なし、現状維持"] };
+  if (idealTarget.row === group.target.row && idealTarget.col === group.target.col) {
+    return { changed: false, reasons: ["部隊は順調に接近中", "敵の防衛状況は許容範囲"] };
+  }
+
+  const centroid = centroidOf(group.members);
+  const distToCurrent = manhattan(centroid, group.target);
+  const distToIdeal = manhattan(centroid, idealTarget);
+  const isCapitalOpportunity = idealTarget.label === "敵首都" && group.target.label !== "敵首都";
+
+  if (isCapitalOpportunity || distToIdeal < distToCurrent) {
+    return {
+      changed: true,
+      target: idealTarget,
+      reasons: isCapitalOpportunity ? ["敵首都が無防備になった"] : ["より重要/近い目標が出現した"],
+    };
+  }
+  return { changed: false, reasons: ["現在の目標を優先", "より有利な代替目標なし"] };
+}
+
+// まだどのグループにも属していないユニットを、既存の同目的グループへ増援として合流させるか、
+// どの目的にも合致しなければ新規グループとして生成する(従来の formGroups 相当のロジック)。
+function formMissingGroups(state, situation, memory, assignedIds, missionLogs) {
   const mode = situation.strategy.mode;
-  const assigned = new Set();
-  const groups = [];
 
   function tryFormGroup(purpose, label, memberFilter, targetPicker) {
-    const members = situation.ownUnits.filter((u) => !assigned.has(u.id) && memberFilter(u));
-    if (members.length === 0) return;
-    const target = targetPicker(members);
+    const candidates = situation.ownUnits.filter((u) => !assignedIds.has(u.id) && memberFilter(u));
+    if (candidates.length === 0) return;
+
+    const existingGroup = memory.groups.find((g) => g.purpose === purpose);
+    if (existingGroup) {
+      for (const u of candidates) {
+        existingGroup.memberIds.push(u.id);
+        assignedIds.add(u.id);
+      }
+      existingGroup.members = [...existingGroup.members, ...candidates];
+      missionLogs.push({ group: existingGroup, status: "REINFORCED", reasons: [`${candidates.length}体が増援として合流`] });
+      return;
+    }
+
+    const target = targetPicker(candidates);
     if (!target) return;
-    for (const u of members) assigned.add(u.id);
-    groups.push({ id: `${purpose}-1`, purpose, label, members, target });
+    const group = {
+      id: memory.nextGroupId++,
+      purpose,
+      label,
+      memberIds: candidates.map((u) => u.id),
+      members: candidates,
+      target,
+      status: "active",
+      createdTurn: state.turn,
+    };
+    for (const u of candidates) assignedIds.add(u.id);
+    memory.groups.push(group);
+    missionLogs.push({ group, status: "NEW", reasons: ["新規作戦を開始"] });
   }
 
   if (mode === "ATTACK") {
-    // 戦車中心の攻撃グループ(敵主力/敵工場/敵首都攻略)
     tryFormGroup("attack", "攻撃グループ", (u) => u.type === "tank", (members) => pickAttackTarget(state, situation, members));
-    // 残りの兵士は都市・工場占領へ
     tryFormGroup("capture", "占領グループ", (u) => u.type === "soldier", (members) => pickCaptureTarget(situation, members));
-    // それでも残った、首都付近のユニットは防衛に回す
     tryFormGroup("defend", "防衛グループ", (u) => isNearCapital(situation, u), () => capitalTarget(situation));
   } else if (mode === "EXPAND") {
-    // 兵士は未占領都市の確保へ
     tryFormGroup("capture", "占領グループ", (u) => u.type === "soldier", (members) => pickCaptureTarget(situation, members));
-    // 首都付近のユニットは確保済み拠点の維持(防衛)に回す
     tryFormGroup("defend", "防衛グループ", (u) => isNearCapital(situation, u), () => capitalTarget(situation));
   } else if (mode === "DEFEND") {
-    // 脅威に近いユニットは迎撃(侵攻部隊の撃破)へ
     tryFormGroup("intercept", "迎撃グループ", (u) => isNearThreat(situation, u), (members) => pickInterceptTarget(situation, members));
-    // 残りの首都付近のユニットは首都防衛へ
     tryFormGroup("defend", "防衛グループ", (u) => isNearCapital(situation, u), () => capitalTarget(situation));
   } else if (mode === "RECOVER") {
-    // 立て直し中は首都付近に戦力を集約するのみ(単一グループ)
     tryFormGroup("defend", "再建グループ", (u) => isNearCapital(situation, u), () => capitalTarget(situation));
   }
+}
 
-  return groups;
+// ターン開始時に、永続している作戦グループを継続/変更/破棄のいずれかに判定する。
+// 生き残ったグループにまだ属していないユニットは formMissingGroups に引き継ぐ。
+function reviewAndFormGroups(state, situation, memory) {
+  const mode = situation.strategy.mode;
+  const missionLogs = [];
+
+  memory.groups = memory.groups.filter((group) => {
+    const liveMembers = group.memberIds
+      .map((id) => state.units.find((u) => u.id === id && u.hp > 0))
+      .filter(Boolean);
+
+    if (liveMembers.length === 0) {
+      missionLogs.push({ group, status: "DISCARDED", reasons: ["部隊全滅"] });
+      return false;
+    }
+    group.members = liveMembers;
+    group.memberIds = liveMembers.map((u) => u.id);
+
+    if (isGroupTargetAchieved(state, situation, group)) {
+      missionLogs.push({ group, status: "ACHIEVED", reasons: ["目標達成"] });
+      return false;
+    }
+
+    if ((mode === "DEFEND" || mode === "RECOVER") && (group.purpose === "attack" || group.purpose === "capture")) {
+      missionLogs.push({ group, status: "DISCARDED", reasons: [`作戦モード(${mode})への切り替えにより解散`] });
+      return false;
+    }
+
+    if (isGroupOverwhelmed(situation, group)) {
+      missionLogs.push({ group, status: "DISCARDED", reasons: ["目標付近の敵戦力が優勢のため攻略断念"] });
+      return false;
+    }
+
+    const reevaluated = reevaluateTarget(state, situation, group);
+    if (reevaluated.changed) {
+      missionLogs.push({
+        group,
+        status: "CHANGED",
+        oldTarget: group.target,
+        newTarget: reevaluated.target,
+        reasons: reevaluated.reasons,
+      });
+      group.target = reevaluated.target;
+    } else {
+      missionLogs.push({ group, status: "CONTINUE", reasons: reevaluated.reasons });
+    }
+
+    return true;
+  });
+
+  const assignedIds = new Set(memory.groups.flatMap((g) => g.memberIds));
+  formMissingGroups(state, situation, memory, assignedIds, missionLogs);
+
+  return missionLogs;
 }
 
 // unitId → 所属グループ の参照テーブルを構築する(1ターン分)
@@ -640,8 +798,52 @@ function applyGroupBonus(candidates, state, unit, group, situation) {
   }
 }
 
+// 「今進行中の作戦(グループの目標)を維持する価値」を評価する。
+// 状況が悪化していれば(グループ自体が解散/変更されているはずなので)ここでは
+// 単純に「同じ目標へ向かっているか」だけを見る。
+function computeMissionBonus(unit, candidate, group) {
+  if (!group || !group.target) return { bonus: 0, notes: [] };
+
+  const dest = { row: candidate.entry.row, col: candidate.entry.col };
+  const beforeDist = manhattan(unit, group.target);
+  const afterDist = manhattan(dest, group.target);
+
+  let bonus = 0;
+  const notes = [];
+
+  if (afterDist < beforeDist) {
+    bonus += MISSION_BONUS;
+    notes.push("同じ作戦目標へ接近");
+  } else if (afterDist > beforeDist) {
+    bonus += MISSION_PENALTY;
+    notes.push("現在の作戦目標から外れる");
+  }
+
+  const isMissionCriticalAction =
+    (candidate.kind === "capture" && dest.row === group.target.row && dest.col === group.target.col) ||
+    (candidate.kind === "attack" &&
+      candidate.target &&
+      candidate.target.row === group.target.row &&
+      candidate.target.col === group.target.col);
+  if (isMissionCriticalAction) {
+    bonus += MISSION_CRITICAL_BONUS;
+    notes.push("作戦達成に必要な行動");
+  }
+
+  return { bonus, notes };
+}
+
+function applyMissionBonus(candidates, unit, group) {
+  for (const c of candidates) {
+    const { bonus, notes } = computeMissionBonus(unit, c, group);
+    c.missionBonus = bonus;
+    c.missionNotes = notes;
+    c.score += bonus;
+  }
+}
+
 // ユニット1体分の行動を評価値方式で決定する
-// (候補を全て生成→作戦補正→グループ連携補正→最高評価を採用)
+// (候補を全て生成→作戦補正→グループ連携補正→作戦継続性補正→最高評価を採用)
 function decideUnitAction(state, unit, situation) {
   const movePoints = UNIT_TYPES[unit.type].move;
   const occupied = occupiedKeysExcluding(state, unit.id);
@@ -668,6 +870,7 @@ function decideUnitAction(state, unit, situation) {
 
   const group = situation.unitGroupMap.get(unit.id) || null;
   applyGroupBonus(candidates, state, unit, group, situation);
+  applyMissionBonus(candidates, unit, group);
 
   candidates.sort((a, b) => b.score - a.score);
   const chosen = candidates[0];
@@ -734,12 +937,16 @@ function decideAndRunProduction(state, situation) {
   }
 }
 
-// AI司令部: ターン開始時に状況分析→作戦モード決定を行い、各ユニットの役割と評価値
-// (+作戦目標への貢献度)に基づいて行動する
+// AI司令部: ターン開始時に状況分析→作戦モード決定→作戦グループの継続/変更/破棄判定を行い、
+// 各ユニットの役割と評価値(+作戦目標への貢献度+作戦継続性)に基づいて行動する
 function createAIController(state, faction) {
   const situation = analyzeSituation(state, faction);
   situation.strategy = decideStrategy(situation);
-  situation.groups = formGroups(state, situation);
+
+  const memory = getAiMemory(state, faction);
+  const missionLogs = reviewAndFormGroups(state, situation, memory);
+
+  situation.groups = memory.groups;
   situation.unitGroupMap = buildUnitGroupMap(situation.groups);
 
   async function takeTurn(animateMove) {
@@ -748,6 +955,7 @@ function createAIController(state, faction) {
         `[AI] === ターン${state.turn} ${faction}軍 状況分析 === 所持金${situation.money}G 自軍${situation.ownUnits.length}体 敵軍${situation.enemyUnits.length}体`
       );
       logStrategy(situation.strategy);
+      logMissionReviews(missionLogs);
       logGroups(situation.groups);
     }
 
