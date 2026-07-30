@@ -63,6 +63,25 @@ const THREAT_BONUS = {
   ATTACK_INTO_THREAT: 20, // 攻撃グループ: 敵の脅威圏内へ進出(無謀な突撃でない場合のみ)
 };
 
+// Combat Exchange Evaluation: ユニット種類ごとの戦力価値(コストと同期させる)
+const UNIT_VALUE = {
+  soldier: UNIT_TYPES.soldier.cost,
+  tank: UNIT_TYPES.tank.cost,
+};
+
+// 価値差(コスト単位)をcombat bonusへ変換する際の縮小率(他の加減点とスケールを揃える)
+const COMBAT_VALUE_SCALE = 3;
+
+// 攻撃後の盤面価値(生存した場合のみ評価)に対する加減点
+const COMBAT_POSITION_BONUS = {
+  DEFENSIVE_TERRAIN: 10, // 防御地形に残る
+  SUPPORTED: 15, // 味方支援範囲内に残る
+  MISSION_APPROACH: 10, // 作戦目標へ近づく
+  THREAT_EXPOSURE: -20, // 高Threat地点に孤立する
+  THREAT_REMOVED: 20, // 自軍首都付近の脅威源を除去し、防衛線形成に寄与する
+};
+const COMBAT_THREAT_EXPOSURE_THRESHOLD = 50; // この値を超えるThreat Mapマスへの残留は危険とみなす
+
 // 作戦目標への貢献度(候補生成の構造は変えず、生成後に一律で加減点する)
 const STRATEGY_BONUS = 50;
 const STRATEGY_PENALTY = -30;
@@ -154,6 +173,8 @@ function logDecision(unit, candidate, group) {
     candidate.missionNotes && candidate.missionNotes.length ? ` (${candidate.missionNotes.join(", ")})` : "";
   const threatNoteText =
     candidate.threatNotes && candidate.threatNotes.length ? ` (${candidate.threatNotes.join(", ")})` : "";
+  const combatNoteText =
+    candidate.combatNotes && candidate.combatNotes.length ? ` (${candidate.combatNotes.join(", ")})` : "";
   console.debug(
     `[AI Decision] ${tag}:\n` +
       `${candidate.label}${candidate.detail ? ` (${candidate.detail})` : ""}\n` +
@@ -162,6 +183,7 @@ function logDecision(unit, candidate, group) {
       `group bonus: ${candidate.groupBonus}${groupNoteText}\n` +
       `mission bonus: ${candidate.missionBonus}${missionNoteText}\n` +
       `threat bonus: ${candidate.threatBonus}${threatNoteText}\n` +
+      `combat bonus: ${candidate.combatBonus}${combatNoteText}\n` +
       `total: ${candidate.score}`
   );
 }
@@ -687,9 +709,12 @@ function generateAttackCandidates(state, unit, reachable, ctx) {
         detail += ", 歩兵のみの守り";
       }
 
+      let counterDamage = 0;
+      let attackerDies = false;
       if (!isLethal) {
-        const counterDamage = computeDamage(target.type, terrainAt(state, entry.row, entry.col).defense);
-        if (counterDamage >= unit.hp) {
+        counterDamage = computeDamage(target.type, terrainAt(state, entry.row, entry.col).defense);
+        attackerDies = counterDamage >= unit.hp;
+        if (attackerDies) {
           score += SCORE.RISK_LOSS_PENALTY;
           detail += ", 反撃で撃破される恐れ";
         } else if (counterDamage > damage) {
@@ -705,6 +730,10 @@ function generateAttackCandidates(state, unit, reachable, ctx) {
         score,
         label: `敵ユニット(${tr},${tc})を攻撃`,
         detail,
+        damage,
+        isLethal,
+        counterDamage,
+        attackerDies,
       });
     }
   }
@@ -1063,6 +1092,97 @@ function applyThreatBonus(candidates, state, unit, group, ctx) {
   }
 }
 
+function formatExchangeRatio(ratio) {
+  if (ratio === Infinity) return "infinite";
+  return Number.isInteger(ratio) ? String(ratio) : ratio.toFixed(2);
+}
+
+function logCombatEvaluation(unit, target, evaluation) {
+  if (!AI_DEBUG) return;
+  const reasonLine = evaluation.notes.length ? `\nReason:\n${evaluation.notes.join(", ")}` : "";
+  console.debug(
+    `[AI Combat Evaluation]\n` +
+      `Unit:\n${UNIT_TYPES[unit.type].label}#${unit.id}\n` +
+      `Target:\n${UNIT_TYPES[target.type].label}#${target.id}\n` +
+      `Damage:\n${evaluation.damage}\n` +
+      `Counter Damage:\n${evaluation.counterDamage}\n` +
+      `Enemy Value:\n${evaluation.enemyValueLoss}\n` +
+      `Own Risk:\n${evaluation.ownValueLoss}\n` +
+      `Exchange Ratio:\n${formatExchangeRatio(evaluation.exchangeRatio)}\n` +
+      `Combat Bonus:\n${evaluation.bonus >= 0 ? "+" : ""}${evaluation.bonus}` +
+      reasonLine
+  );
+}
+
+// 攻撃候補1件分の「戦力交換」としての価値を評価する。撃破数ではなく、
+// 敵/自軍それぞれが失う戦力価値の差(=盤面全体の戦力バランスへの影響)を見る。
+function computeCombatBonus(state, unit, candidate, situation, group) {
+  const { target, damage, isLethal, counterDamage, attackerDies } = candidate;
+  const dest = { row: candidate.entry.row, col: candidate.entry.col };
+
+  const enemyValue = UNIT_VALUE[target.type];
+  const ownValue = UNIT_VALUE[unit.type];
+  const enemyValueLoss = isLethal ? enemyValue : Math.round(enemyValue * (damage / target.hp));
+  const ownValueLoss = attackerDies ? ownValue : counterDamage > 0 ? Math.round(ownValue * (counterDamage / unit.hp)) : 0;
+  const exchangeRatio = ownValueLoss > 0 ? enemyValueLoss / ownValueLoss : Infinity;
+
+  let bonus = Math.round((enemyValueLoss - ownValueLoss) / COMBAT_VALUE_SCALE);
+  const notes = [];
+  if (exchangeRatio < 1) notes.push("Bad exchange");
+
+  // 攻撃側が生き残る場合のみ、攻撃後の盤面価値(地形・支援・作戦目標・脅威)を評価する
+  if (!attackerDies) {
+    const terrain = terrainAt(state, dest.row, dest.col);
+    if (terrain.defense > 0) {
+      bonus += COMBAT_POSITION_BONUS.DEFENSIVE_TERRAIN;
+      notes.push("Defensive terrain");
+    }
+
+    const alliesNearDest = situation.ownUnits.filter((u) => u.id !== unit.id && manhattan(u, dest) <= SUPPORT_RANGE).length;
+    if (alliesNearDest > 0) {
+      bonus += COMBAT_POSITION_BONUS.SUPPORTED;
+      notes.push("Allied support nearby");
+    }
+
+    if (group && group.target) {
+      const beforeDist = manhattan(unit, group.target);
+      const afterDist = manhattan(dest, group.target);
+      if (afterDist < beforeDist) {
+        bonus += COMBAT_POSITION_BONUS.MISSION_APPROACH;
+        notes.push("Approaching mission target");
+      }
+    }
+
+    const destThreat = situation.threatMap[dest.row][dest.col];
+    if (alliesNearDest === 0 && destThreat > COMBAT_THREAT_EXPOSURE_THRESHOLD) {
+      bonus += COMBAT_POSITION_BONUS.THREAT_EXPOSURE;
+      notes.push("Isolated at high-threat tile");
+    }
+  }
+
+  if (isLethal && manhattan(target, situation.ownCapital) <= DEFEND_GROUP_RADIUS) {
+    bonus += COMBAT_POSITION_BONUS.THREAT_REMOVED;
+    notes.push("Removes threat near our capital");
+  }
+
+  return { bonus, notes, damage, counterDamage, enemyValueLoss, ownValueLoss, exchangeRatio };
+}
+
+function applyCombatBonus(candidates, state, unit, situation, group) {
+  for (const c of candidates) {
+    if (c.kind !== "attack") {
+      c.combatBonus = 0;
+      c.combatNotes = [];
+      continue;
+    }
+    const evaluation = computeCombatBonus(state, unit, c, situation, group);
+    c.combatBonus = evaluation.bonus;
+    c.combatNotes = evaluation.notes;
+    c.score += evaluation.bonus;
+    logCombatEvaluation(unit, c.target, evaluation);
+  }
+}
+
 // ユニット1体分の行動を評価値方式で決定する
 // (候補を全て生成→作戦補正→グループ連携補正→作戦継続性補正→最高評価を採用)
 function decideUnitAction(state, unit, situation) {
@@ -1093,6 +1213,7 @@ function decideUnitAction(state, unit, situation) {
   applyGroupBonus(candidates, state, unit, group, situation);
   applyMissionBonus(candidates, unit, group);
   applyThreatBonus(candidates, state, unit, group, ctx);
+  applyCombatBonus(candidates, state, unit, ctx, group);
 
   candidates.sort((a, b) => b.score - a.score);
   const chosen = candidates[0];
