@@ -36,10 +36,31 @@ const SCORE = {
 
 // 作戦モード判定の閾値
 const STRATEGY_THRESHOLDS = {
-  CAPITAL_THREAT_DISTANCE: 3, // 自軍首都からこの距離以内に敵ユニットがいれば脅威とみなす
+  CAPITAL_THREAT_SCORE: 100, // Threat Map上の自軍首都マスの脅威値がこれを超えたらDEFEND
   WEAK_POWER_RATIO: 0.65, // 戦力比がこれ未満なら劣勢
   STRONG_POWER_RATIO: 1.4, // 戦力比がこれ以上なら優勢
   EXPAND_TERRITORY_MIN: 2, // 未占領地(中立/敵地)がこの数以上残っていれば拡大余地ありとみなす
+};
+
+// Threat Map(戦場の危険度マップ)生成用の評価値
+const THREAT_SCORE = {
+  TANK_AT: 50, // 敵戦車の現在位置
+  TANK_NEAR_1: 30, // 敵戦車から1マス以内
+  TANK_NEAR_2: 15, // 敵戦車から2マス以内
+  SOLDIER_AT: 20, // 敵兵士の現在位置
+  SOLDIER_NEAR_1: 10, // 敵兵士から1マス以内
+  VALUABLE_APPROACH: 25, // 都市/工場/首都に敵ユニットが接近している場合の追加加算
+  VALUABLE_APPROACH_RANGE: 2,
+  CAPITAL_NEAR_1: 100, // 自軍首都への最短距離1マス以内
+  CAPITAL_NEAR_3: 50, // 同2〜3マス
+  CAPITAL_NEAR_5: 20, // 同4〜5マス
+};
+
+// Threat Mapを個別行動評価に反映する際の加減点
+const THREAT_BONUS = {
+  DEFEND_APPROACH_HIGH_THREAT: 40, // 防衛グループ: より脅威の高い地点へ接近
+  DEFEND_LEAVE_KEY_POINT: -30, // 防衛グループ: 防衛対象(重要拠点)から離れる
+  ATTACK_INTO_THREAT: 20, // 攻撃グループ: 敵の脅威圏内へ進出(無謀な突撃でない場合のみ)
 };
 
 // 作戦目標への貢献度(候補生成の構造は変えず、生成後に一律で加減点する)
@@ -88,6 +109,36 @@ const ADJACENT_OFFSETS = [
   [0, 1],
 ];
 
+// 自軍首都・自軍保有の都市/工場(=関心地点)の現在の脅威値を一覧表示する
+function logThreatMap(state, situation) {
+  if (!AI_DEBUG) return;
+  const threatMap = situation.threatMap;
+  const points = [{ row: situation.ownCapital.row, col: situation.ownCapital.col, label: TERRAIN.CAPITAL.label }];
+  for (let r = 0; r < MAP_ROWS; r++) {
+    for (let c = 0; c < MAP_COLS; c++) {
+      if (r === situation.ownCapital.row && c === situation.ownCapital.col) continue;
+      const terrain = TERRAIN[state.map[r][c]];
+      if (terrain.capturable && state.ownership[r][c] === situation.faction) {
+        points.push({ row: r, col: c, label: terrain.label });
+      }
+    }
+  }
+  points.sort((a, b) => threatMap[b.row][b.col] - threatMap[a.row][a.col]);
+  const lines = points.map((p) => `${p.label}(${p.row},${p.col}): ${threatMap[p.row][p.col]}`);
+  console.debug(`[AI Threat Map]\n${lines.join("\n")}`);
+}
+
+// 防衛グループの目標選定(新規形成・変更時)の理由をログ出力する
+function logDefense(situation, target) {
+  if (!AI_DEBUG) return;
+  console.debug(
+    `[AI Defense]\n` +
+      `Target:\n${target.label}(${target.row},${target.col})\n` +
+      `Threat:\n${target.threatScore}\n` +
+      `Reason:\n${describeThreatReason(situation, target)}`
+  );
+}
+
 function logStrategy(strategy) {
   if (!AI_DEBUG) return;
   const reasonLines = strategy.reasons.map((r) => `- ${r}`).join("\n");
@@ -101,6 +152,8 @@ function logDecision(unit, candidate, group) {
     candidate.groupNotes && candidate.groupNotes.length ? ` (${candidate.groupNotes.join(", ")})` : "";
   const missionNoteText =
     candidate.missionNotes && candidate.missionNotes.length ? ` (${candidate.missionNotes.join(", ")})` : "";
+  const threatNoteText =
+    candidate.threatNotes && candidate.threatNotes.length ? ` (${candidate.threatNotes.join(", ")})` : "";
   console.debug(
     `[AI Decision] ${tag}:\n` +
       `${candidate.label}${candidate.detail ? ` (${candidate.detail})` : ""}\n` +
@@ -108,6 +161,7 @@ function logDecision(unit, candidate, group) {
       `strategy bonus: ${candidate.strategyBonus}\n` +
       `group bonus: ${candidate.groupBonus}${groupNoteText}\n` +
       `mission bonus: ${candidate.missionBonus}${missionNoteText}\n` +
+      `threat bonus: ${candidate.threatBonus}${threatNoteText}\n` +
       `total: ${candidate.score}`
   );
 }
@@ -171,6 +225,73 @@ function nearestDistance(units, point) {
   return Math.min(...units.map((u) => manhattan(u, point)));
 }
 
+// Threat Map: マップ上の各マスが敵からどれだけ危険かをルールベースで数値化する。
+// ターン開始時に状況分析より先に生成し、以降の戦略/作戦/戦術の全レイヤーから参照する。
+// state から直接読むため、situation オブジェクトには依存しない。
+function buildThreatMap(state, faction) {
+  const enemyFaction = opponentOf(faction);
+  const enemyUnits = state.units.filter((u) => u.faction === enemyFaction && u.hp > 0);
+  const ownCapital = state.capitalLocation[faction];
+
+  const map = Array.from({ length: MAP_ROWS }, () => Array(MAP_COLS).fill(0));
+
+  for (const enemy of enemyUnits) {
+    const rings =
+      enemy.type === "tank"
+        ? [
+            [0, THREAT_SCORE.TANK_AT],
+            [1, THREAT_SCORE.TANK_NEAR_1],
+            [2, THREAT_SCORE.TANK_NEAR_2],
+          ]
+        : [
+            [0, THREAT_SCORE.SOLDIER_AT],
+            [1, THREAT_SCORE.SOLDIER_NEAR_1],
+          ];
+    for (let r = 0; r < MAP_ROWS; r++) {
+      for (let c = 0; c < MAP_COLS; c++) {
+        const dist = Math.abs(r - enemy.row) + Math.abs(c - enemy.col);
+        for (const [ringDist, value] of rings) {
+          if (dist === ringDist) {
+            map[r][c] += value;
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  // 占領価値のある地点(都市/工場/首都)へ敵ユニットが接近している場合は追加加算
+  for (let r = 0; r < MAP_ROWS; r++) {
+    for (let c = 0; c < MAP_COLS; c++) {
+      const terrain = TERRAIN[state.map[r][c]];
+      if (!terrain.capturable) continue;
+      const approached = enemyUnits.some(
+        (u) => Math.abs(u.row - r) + Math.abs(u.col - c) <= THREAT_SCORE.VALUABLE_APPROACH_RANGE
+      );
+      if (approached) map[r][c] += THREAT_SCORE.VALUABLE_APPROACH;
+    }
+  }
+
+  // 自軍首都への近さによる追加脅威(首都防衛の緊急度)
+  const nearestToCapital = nearestDistance(enemyUnits, ownCapital);
+  let capitalBonus = 0;
+  if (nearestToCapital <= 1) capitalBonus = THREAT_SCORE.CAPITAL_NEAR_1;
+  else if (nearestToCapital <= 3) capitalBonus = THREAT_SCORE.CAPITAL_NEAR_3;
+  else if (nearestToCapital <= 5) capitalBonus = THREAT_SCORE.CAPITAL_NEAR_5;
+  if (capitalBonus > 0) map[ownCapital.row][ownCapital.col] += capitalBonus;
+
+  return map;
+}
+
+// target 地点にとって最も近い敵ユニットから、脅威の理由を短く説明する
+function describeThreatReason(situation, target) {
+  if (situation.enemyUnits.length === 0) return "no immediate threat detected";
+  const nearest = [...situation.enemyUnits].sort((a, b) => manhattan(a, target) - manhattan(b, target))[0];
+  const dist = manhattan(nearest, target);
+  const label = nearest.type === "tank" ? "Enemy Tank" : "Enemy Soldier";
+  return dist <= 1 ? `${label} approaching` : `${label} nearby (${dist} tiles away)`;
+}
+
 // 作戦グループをターンをまたいで保持するための永続領域。state 自体はゲーム開始/リスタートの
 // たびに createInitialState() で新規作成されるため、_aiMemory も自然にリセットされる。
 // state.js / main.js には一切手を入れず、ai.js だけで完結させる。
@@ -230,7 +351,8 @@ function decideStrategy(situation) {
 
   const nearestEnemyToOwnCapital = nearestDistance(situation.enemyUnits, situation.ownCapital);
   const nearestOwnToEnemyCapital = nearestDistance(situation.ownUnits, situation.enemyCapital);
-  const capitalThreatened = nearestEnemyToOwnCapital <= STRATEGY_THRESHOLDS.CAPITAL_THREAT_DISTANCE;
+  const capitalThreatScore = situation.threatMap[situation.ownCapital.row][situation.ownCapital.col];
+  const capitalThreatened = capitalThreatScore > STRATEGY_THRESHOLDS.CAPITAL_THREAT_SCORE;
 
   const ownTerritory = situation.ownStats.cities + situation.ownStats.factories;
   const enemyTerritory = situation.enemyStats.cities + situation.enemyStats.factories;
@@ -239,7 +361,9 @@ function decideStrategy(situation) {
   let mode;
   if (capitalThreatened) {
     mode = "DEFEND";
-    reasons.push(`own capital threatened (enemy unit ${nearestEnemyToOwnCapital} tiles away)`);
+    reasons.push(
+      `capital threat score ${capitalThreatScore} exceeds ${STRATEGY_THRESHOLDS.CAPITAL_THREAT_SCORE} (nearest enemy ${nearestEnemyToOwnCapital} tiles away)`
+    );
   } else if (powerRatio <= STRATEGY_THRESHOLDS.WEAK_POWER_RATIO) {
     mode = "RECOVER";
     reasons.push(`force disadvantage (power ratio ${powerRatio.toFixed(2)})`);
@@ -267,18 +391,31 @@ function centroidOf(units) {
   return { row, col };
 }
 
-// 攻撃グループの目標: 敵首都 or 敵の生産拠点(工場)のうち、戦車部隊の重心から最も近いもの
+// 攻撃グループの目標: 敵首都 or 敵の生産拠点(工場)のうち、戦車部隊の重心からの距離と
+// Threat Map上の脅威値(=敵の防衛戦力の目安、値が低いほど手薄)を合わせて評価する。
 function pickAttackTarget(state, situation, members) {
+  const threatMap = situation.threatMap;
   const centroid = centroidOf(members);
   const candidates = situation.captureTargets.filter(
     (t) => t.isEnemyCapital || TERRAIN[state.map[t.row][t.col]].producible
   );
   if (candidates.length === 0) {
-    return { row: situation.enemyCapital.row, col: situation.enemyCapital.col, label: "敵首都" };
+    const row = situation.enemyCapital.row;
+    const col = situation.enemyCapital.col;
+    return { row, col, label: "敵首都", threatScore: threatMap[row][col] };
   }
-  candidates.sort((a, b) => manhattan(centroid, a) - manhattan(centroid, b));
+  candidates.sort((a, b) => {
+    const scoreA = manhattan(centroid, a) + threatMap[a.row][a.col] / 10;
+    const scoreB = manhattan(centroid, b) + threatMap[b.row][b.col] / 10;
+    return scoreA - scoreB;
+  });
   const best = candidates[0];
-  return { row: best.row, col: best.col, label: best.isEnemyCapital ? "敵首都" : "敵工場" };
+  return {
+    row: best.row,
+    col: best.col,
+    label: best.isEnemyCapital ? "敵首都" : "敵工場",
+    threatScore: threatMap[best.row][best.col],
+  };
 }
 
 // 占領グループの目標: 敵首都を除く未占領の占領可能地形のうち、歩兵部隊の重心から最も近いもの
@@ -301,6 +438,32 @@ function pickInterceptTarget(situation, members) {
 
 function capitalTarget(situation) {
   return { row: situation.ownCapital.row, col: situation.ownCapital.col, label: "自軍首都" };
+}
+
+// 防衛グループの目標: 自軍首都および自軍が保有する都市/工場のうち、Threat Map上で
+// 最も脅威値が高い地点を優先する(僅差の場合のみ部隊重心からの距離でタイブレーク)。
+function pickDefendTarget(state, situation, members) {
+  const threatMap = situation.threatMap;
+  const candidates = [capitalTarget(situation)];
+  for (let r = 0; r < MAP_ROWS; r++) {
+    for (let c = 0; c < MAP_COLS; c++) {
+      if (r === situation.ownCapital.row && c === situation.ownCapital.col) continue;
+      const terrain = TERRAIN[state.map[r][c]];
+      if (terrain.capturable && state.ownership[r][c] === situation.faction) {
+        candidates.push({ row: r, col: c, label: terrain.label });
+      }
+    }
+  }
+
+  const centroid = centroidOf(members);
+  candidates.sort((a, b) => {
+    const diff = threatMap[b.row][b.col] - threatMap[a.row][a.col];
+    if (diff !== 0) return diff;
+    return manhattan(centroid, a) - manhattan(centroid, b);
+  });
+
+  const best = candidates[0];
+  return { row: best.row, col: best.col, label: best.label, threatScore: threatMap[best.row][best.col] };
 }
 
 // unit が自軍首都/脅威からの防衛・迎撃を担うのに十分近いか
@@ -339,11 +502,20 @@ function reevaluateTarget(state, situation, group) {
   if (group.purpose === "attack") idealTarget = pickAttackTarget(state, situation, group.members);
   else if (group.purpose === "capture") idealTarget = pickCaptureTarget(situation, group.members);
   else if (group.purpose === "intercept") idealTarget = pickInterceptTarget(situation, group.members);
-  else return { changed: false, reasons: ["防衛対象は固定"] };
+  else if (group.purpose === "defend") idealTarget = pickDefendTarget(state, situation, group.members);
+  else return { changed: false, reasons: ["対象なし"] };
 
   if (!idealTarget) return { changed: false, reasons: ["代替目標なし、現状維持"] };
   if (idealTarget.row === group.target.row && idealTarget.col === group.target.col) {
     return { changed: false, reasons: ["部隊は順調に接近中", "敵の防衛状況は許容範囲"] };
+  }
+
+  if (group.purpose === "defend") {
+    return {
+      changed: true,
+      target: idealTarget,
+      reasons: [`脅威値が高い地点(${idealTarget.label})へ防衛対象を切り替え`],
+    };
   }
 
   const centroid = centroidOf(group.members);
@@ -396,20 +568,21 @@ function formMissingGroups(state, situation, memory, assignedIds, missionLogs) {
     for (const u of candidates) assignedIds.add(u.id);
     memory.groups.push(group);
     missionLogs.push({ group, status: "NEW", reasons: ["新規作戦を開始"] });
+    if (purpose === "defend") logDefense(situation, target);
   }
 
   if (mode === "ATTACK") {
     tryFormGroup("attack", "攻撃グループ", (u) => u.type === "tank", (members) => pickAttackTarget(state, situation, members));
     tryFormGroup("capture", "占領グループ", (u) => u.type === "soldier", (members) => pickCaptureTarget(situation, members));
-    tryFormGroup("defend", "防衛グループ", (u) => isNearCapital(situation, u), () => capitalTarget(situation));
+    tryFormGroup("defend", "防衛グループ", (u) => isNearCapital(situation, u), (members) => pickDefendTarget(state, situation, members));
   } else if (mode === "EXPAND") {
     tryFormGroup("capture", "占領グループ", (u) => u.type === "soldier", (members) => pickCaptureTarget(situation, members));
-    tryFormGroup("defend", "防衛グループ", (u) => isNearCapital(situation, u), () => capitalTarget(situation));
+    tryFormGroup("defend", "防衛グループ", (u) => isNearCapital(situation, u), (members) => pickDefendTarget(state, situation, members));
   } else if (mode === "DEFEND") {
     tryFormGroup("intercept", "迎撃グループ", (u) => isNearThreat(situation, u), (members) => pickInterceptTarget(situation, members));
-    tryFormGroup("defend", "防衛グループ", (u) => isNearCapital(situation, u), () => capitalTarget(situation));
+    tryFormGroup("defend", "防衛グループ", (u) => isNearCapital(situation, u), (members) => pickDefendTarget(state, situation, members));
   } else if (mode === "RECOVER") {
-    tryFormGroup("defend", "再建グループ", (u) => isNearCapital(situation, u), () => capitalTarget(situation));
+    tryFormGroup("defend", "再建グループ", (u) => isNearCapital(situation, u), (members) => pickDefendTarget(state, situation, members));
   }
 }
 
@@ -456,6 +629,7 @@ function reviewAndFormGroups(state, situation, memory) {
         reasons: reevaluated.reasons,
       });
       group.target = reevaluated.target;
+      if (group.purpose === "defend") logDefense(situation, reevaluated.target);
     } else {
       missionLogs.push({ group, status: "CONTINUE", reasons: reevaluated.reasons });
     }
@@ -842,6 +1016,53 @@ function applyMissionBonus(candidates, unit, group) {
   }
 }
 
+// Threat Mapを踏まえた加減点。防衛グループは防衛対象(脅威地点)への接近/離脱を、
+// 攻撃グループは敵の脅威圏内への進出を評価する。ただし進出先が致命的なリスクを
+// 伴う場合(反撃で撃破される)は無謀な突撃とみなし、ボーナスを与えない。
+function computeThreatBonus(state, unit, candidate, group, ctx) {
+  if (!group || !group.target) return { bonus: 0, notes: [] };
+  const threatMap = ctx.threatMap;
+  const dest = { row: candidate.entry.row, col: candidate.entry.col };
+  let bonus = 0;
+  const notes = [];
+
+  if (group.purpose === "defend") {
+    const beforeDist = manhattan(unit, group.target);
+    const afterDist = manhattan(dest, group.target);
+    const targetThreat = threatMap[group.target.row][group.target.col];
+    if (targetThreat > 0 && afterDist < beforeDist) {
+      bonus += THREAT_BONUS.DEFEND_APPROACH_HIGH_THREAT;
+      notes.push("高脅威地点へ接近");
+    } else if (afterDist > beforeDist) {
+      bonus += THREAT_BONUS.DEFEND_LEAVE_KEY_POINT;
+      notes.push("防衛対象(重要拠点)から離れる");
+    }
+  } else if (group.purpose === "attack" || group.purpose === "intercept") {
+    const destThreat = threatMap[dest.row][dest.col];
+    const currentThreat = threatMap[unit.row][unit.col];
+    if (destThreat > currentThreat) {
+      const risk = assessDestinationRisk(state, unit, dest.row, dest.col, ctx.enemyUnits);
+      if (risk.penalty === SCORE.RISK_LOSS_PENALTY) {
+        notes.push("無謀な突撃のため見送り");
+      } else {
+        bonus += THREAT_BONUS.ATTACK_INTO_THREAT;
+        notes.push("敵の脅威圏内へ進出");
+      }
+    }
+  }
+
+  return { bonus, notes };
+}
+
+function applyThreatBonus(candidates, state, unit, group, ctx) {
+  for (const c of candidates) {
+    const { bonus, notes } = computeThreatBonus(state, unit, c, group, ctx);
+    c.threatBonus = bonus;
+    c.threatNotes = notes;
+    c.score += bonus;
+  }
+}
+
 // ユニット1体分の行動を評価値方式で決定する
 // (候補を全て生成→作戦補正→グループ連携補正→作戦継続性補正→最高評価を採用)
 function decideUnitAction(state, unit, situation) {
@@ -871,6 +1092,7 @@ function decideUnitAction(state, unit, situation) {
   const group = situation.unitGroupMap.get(unit.id) || null;
   applyGroupBonus(candidates, state, unit, group, situation);
   applyMissionBonus(candidates, unit, group);
+  applyThreatBonus(candidates, state, unit, group, ctx);
 
   candidates.sort((a, b) => b.score - a.score);
   const chosen = candidates[0];
@@ -940,7 +1162,9 @@ function decideAndRunProduction(state, situation) {
 // AI司令部: ターン開始時に状況分析→作戦モード決定→作戦グループの継続/変更/破棄判定を行い、
 // 各ユニットの役割と評価値(+作戦目標への貢献度+作戦継続性)に基づいて行動する
 function createAIController(state, faction) {
+  const threatMap = buildThreatMap(state, faction);
   const situation = analyzeSituation(state, faction);
+  situation.threatMap = threatMap;
   situation.strategy = decideStrategy(situation);
 
   const memory = getAiMemory(state, faction);
@@ -954,6 +1178,7 @@ function createAIController(state, faction) {
       console.debug(
         `[AI] === ターン${state.turn} ${faction}軍 状況分析 === 所持金${situation.money}G 自軍${situation.ownUnits.length}体 敵軍${situation.enemyUnits.length}体`
       );
+      logThreatMap(state, situation);
       logStrategy(situation.strategy);
       logMissionReviews(missionLogs);
       logGroups(situation.groups);
