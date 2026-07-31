@@ -51,7 +51,11 @@ function renderFrame(ui) {
   drawScene(ctx, state, tileSize, ui);
   actionBar.classList.toggle("hidden", !controller.isPostMove());
   const options = ui.postMoveOptions;
+  const targetCount = ui.attackTargetKeys ? ui.attackTargetKeys.size : 0;
   attackBtn.disabled = !options || !options.canAttack;
+  // 隣接する敵が複数いる場合はボタンでは一意に選べないため、枠カーソルが付いた
+  // 敵ユニットを直接タップして選ぶよう促す(タップ側の攻撃処理は対象数に関わらず動作する)
+  attackBtn.textContent = targetCount > 1 ? "攻撃(対象をタップ)" : "攻撃";
   captureBtn.disabled = !options || !options.canCapture;
   updateUnitInfo(ui.selectedUnitInfo);
 }
