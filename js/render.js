@@ -2,6 +2,7 @@
 
 import { MAP_ROWS, MAP_COLS, TERRAIN, UNIT_TYPES } from "./data.js";
 import { tileKey } from "./grid.js";
+import { getUnitSprite } from "./sprites.js";
 
 const FACTION_COLOR = {
   player: "#2563eb",
@@ -46,6 +47,7 @@ export function drawScene(ctx, state, tileSize, ui) {
   } = ui || {};
 
   ctx.clearRect(0, 0, MAP_COLS * tileSize, MAP_ROWS * tileSize);
+  ctx.imageSmoothingEnabled = false; // ドット絵ユニット画像を導入した際にボケさせないため
 
   for (let r = 0; r < MAP_ROWS; r++) {
     for (let c = 0; c < MAP_COLS; c++) {
@@ -85,26 +87,42 @@ export function drawScene(ctx, state, tileSize, ui) {
     const cx = x + tileSize / 2;
     const cy = y + tileSize / 2;
     const radius = tileSize * 0.35;
+    const sprite = getUnitSprite(unit.type, unit.faction);
 
-    ctx.beginPath();
-    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-    ctx.fillStyle = FACTION_COLOR[unit.faction];
     ctx.globalAlpha = unit.moved ? 0.55 : 1;
-    ctx.fill();
-    if (unit.id === selectedUnitId) {
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = "#facc15";
-      ctx.stroke();
+    if (sprite) {
+      const size = tileSize * 0.9;
+      ctx.drawImage(sprite, cx - size / 2, cy - size / 2, size, size);
+      if (unit.id === selectedUnitId) {
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = "#facc15";
+        ctx.strokeRect(cx - size / 2, cy - size / 2, size, size);
+      }
+    } else {
+      // 画像未配置時の代替描画(円+文字)
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx.fillStyle = FACTION_COLOR[unit.faction];
+      ctx.fill();
+      if (unit.id === selectedUnitId) {
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = "#facc15";
+        ctx.stroke();
+      }
     }
     ctx.globalAlpha = 1;
 
-    ctx.fillStyle = "#fff";
-    ctx.font = `${Math.floor(tileSize * 0.35)}px sans-serif`;
+    if (!sprite) {
+      ctx.fillStyle = "#fff";
+      ctx.font = `${Math.floor(tileSize * 0.35)}px sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const label = unit.type === "soldier" ? "S" : "T";
+      ctx.fillText(label, cx, cy);
+    }
+
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    const label = unit.type === "soldier" ? "S" : "T";
-    ctx.fillText(label, cx, cy);
-
     ctx.font = `${Math.floor(tileSize * 0.22)}px sans-serif`;
     ctx.fillStyle = "#111";
     ctx.fillText(String(unit.hp), cx, y + tileSize - Math.floor(tileSize * 0.14));

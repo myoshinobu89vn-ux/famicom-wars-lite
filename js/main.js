@@ -1,12 +1,13 @@
 // 各モジュールの結線・ゲームループ・DOM連携
 
-import { UNIT_TYPES } from "./data.js";
+import { UNIT_TYPES, listMaps, selectMap, getCurrentMapId } from "./data.js";
 import { createInitialState, startTurn, factionStats } from "./state.js";
 import { checkGameOver } from "./state.js";
 import { computeTileSize, resizeCanvasForDpr, drawScene, xyToRowCol } from "./render.js";
 import { createInputController } from "./input.js";
 import { runCpuTurn } from "./ai.js";
 import { animateUnitMove } from "./animation.js";
+import { onSpriteReady } from "./sprites.js";
 
 const canvas = document.getElementById("board");
 const boardWrap = document.getElementById("boardWrap");
@@ -27,6 +28,15 @@ const turnBanner = document.getElementById("turnBanner");
 const gameOverOverlay = document.getElementById("gameOverOverlay");
 const gameOverText = document.getElementById("gameOverText");
 const restartBtn = document.getElementById("restartBtn");
+const mapSelect = document.getElementById("mapSelect");
+
+for (const { id, label } of listMaps()) {
+  const opt = document.createElement("option");
+  opt.value = id;
+  opt.textContent = label;
+  mapSelect.appendChild(opt);
+}
+mapSelect.value = getCurrentMapId();
 
 let state = createInitialState();
 startTurn(state, "player");
@@ -220,7 +230,7 @@ endTurnBtn.addEventListener("click", () => {
   endPlayerTurn();
 });
 
-restartBtn.addEventListener("click", () => {
+function resetGame() {
   state = createInitialState();
   startTurn(state, "player");
   controller.clearSelection();
@@ -230,9 +240,19 @@ restartBtn.addEventListener("click", () => {
   lastTurnKey = null;
   render();
   updateHud();
+}
+
+restartBtn.addEventListener("click", () => {
+  resetGame();
+});
+
+mapSelect.addEventListener("change", () => {
+  selectMap(mapSelect.value);
+  resetGame();
 });
 
 window.addEventListener("resize", render);
+onSpriteReady(render); // ユニット画像の読み込み完了時に再描画してフォールバック表示から切り替える
 
 updateHud();
 render();
