@@ -4,10 +4,18 @@
 // 画像が未配置/読み込み失敗の場合は getUnitSprite() が null を返すだけなので、
 // 何も置かなくても従来どおり動作する。
 
-export const UNIT_SPRITE_SIZE = 32; // 想定するソース画像サイズ(ドット絵32x32)
+export const UNIT_SPRITE_SIZE = 48; // 想定するソース画像サイズ(ドット絵48x48)
 
 const ASSET_DIR = "assets/units";
 const cache = new Map();
+let onReadyCallback = null;
+
+// 画像が読み込み完了した際に呼ばれるコールバックを登録する(再描画のトリガー用)。
+// 呼ばない場合でも動作はするが、初回描画時にまだ読み込みが終わっていない画像は
+// 次に何らかの操作で再描画が起きるまでフォールバック表示のままになる。
+export function onSpriteReady(callback) {
+  onReadyCallback = callback;
+}
 
 function loadSprite(type, faction) {
   const key = `${type}_${faction}`;
@@ -15,6 +23,7 @@ function loadSprite(type, faction) {
   entry.img.src = `${ASSET_DIR}/${key}.png`;
   entry.img.addEventListener("load", () => {
     entry.ready = true;
+    if (onReadyCallback) onReadyCallback();
   });
   cache.set(key, entry);
   return entry;

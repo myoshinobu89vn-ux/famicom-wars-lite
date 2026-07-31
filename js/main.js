@@ -7,6 +7,7 @@ import { computeTileSize, resizeCanvasForDpr, drawScene, xyToRowCol } from "./re
 import { createInputController } from "./input.js";
 import { runCpuTurn } from "./ai.js";
 import { animateUnitMove } from "./animation.js";
+import { onSpriteReady } from "./sprites.js";
 
 const canvas = document.getElementById("board");
 const boardWrap = document.getElementById("boardWrap");
@@ -251,6 +252,7 @@ mapSelect.addEventListener("change", () => {
 });
 
 window.addEventListener("resize", render);
+onSpriteReady(render); // ユニット画像の読み込み完了時に再描画してフォールバック表示から切り替える
 
 updateHud();
 render();
