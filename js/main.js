@@ -29,6 +29,10 @@ const gameOverOverlay = document.getElementById("gameOverOverlay");
 const gameOverText = document.getElementById("gameOverText");
 const restartBtn = document.getElementById("restartBtn");
 const mapSelect = document.getElementById("mapSelect");
+const saveBtn = document.getElementById("saveBtn");
+const loadBtn = document.getElementById("loadBtn");
+
+const SAVE_KEY = "savegame";
 
 for (const { id, label } of listMaps()) {
   const opt = document.createElement("option");
@@ -254,6 +258,56 @@ mapSelect.addEventListener("change", () => {
   selectMap(mapSelect.value);
   resetGame();
 });
+
+// state自体はプレーンなJSONとして丸ごと保存する(state.jsの構造は変更しない)。
+// マップ選択(MAP_ROWS/MAP_COLS/INITIAL_SETUP)はdata.js側のモジュール変数で
+// stateの外にあるため、現在選択中のマップIDも合わせて保存する。
+function saveGame() {
+  try {
+    const payload = { mapId: getCurrentMapId(), state };
+    localStorage.setItem(SAVE_KEY, JSON.stringify(payload));
+    showTurnBanner("セーブしました");
+  } catch (err) {
+    console.error("セーブに失敗しました", err);
+    alert("セーブに失敗しました");
+  }
+}
+
+function loadGame() {
+  const raw = localStorage.getItem(SAVE_KEY);
+  if (!raw) {
+    alert("セーブデータがありません");
+    return;
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(raw);
+  } catch (err) {
+    console.error("セーブデータの読み込みに失敗しました", err);
+    alert("セーブデータが壊れています");
+    return;
+  }
+  if (!payload || !payload.state || !payload.mapId) {
+    alert("セーブデータの形式が不正です");
+    return;
+  }
+
+  selectMap(payload.mapId);
+  mapSelect.value = payload.mapId;
+  state = payload.state;
+  controller.clearSelection();
+  hideBuildMenu();
+  gameOverOverlay.classList.toggle("hidden", !state.gameOver);
+  endTurnBtn.disabled = !!state.gameOver || state.currentFaction !== "player";
+  lastTurnKey = `${state.turn}-${state.currentFaction}`; // ロード直後に自動でターンバナーが出ないようにする
+  render();
+  updateHud();
+  showTurnBanner("ロードしました");
+}
+
+saveBtn.addEventListener("click", saveGame);
+loadBtn.addEventListener("click", loadGame);
 
 window.addEventListener("resize", render);
 onSpriteReady(render); // ユニット画像の読み込み完了時に再描画してフォールバック表示から切り替える
