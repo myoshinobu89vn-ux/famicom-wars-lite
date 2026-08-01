@@ -18,6 +18,9 @@ import { resolveAttack, tryCapture } from "./combat.js";
 // AIの判断理由をブラウザのコンソール(devtools)で確認できるようにするフラグ
 const AI_DEBUG = true;
 
+// state._aiDebugLog[faction] に保持する構造化ログのターン数上限(古いターンから破棄)
+const AI_DEBUG_LOG_MAX_TURNS = 20;
+
 // 評価値表: 各行動のスコアリング基準
 const SCORE = {
   CAPTURE_CITY: 80,
@@ -1360,6 +1363,40 @@ function applyCombatBonus(candidates, state, unit, situation, group) {
 
 // ユニット1体分の行動を評価値方式で決定する
 // (候補を全て生成→作戦補正→グループ連携補正→作戦継続性補正→最高評価を採用)
+// 候補の「対象」座標。攻撃候補は攻撃相手のマス、それ以外は移動先のマスを指す。
+function candidateTarget(candidate) {
+  if (candidate.kind === "attack" && candidate.target) {
+    return { row: candidate.target.row, col: candidate.target.col };
+  }
+  return { row: candidate.entry.row, col: candidate.entry.col };
+}
+
+// decideUnitAction 1回分の判断を構造化データとして記録する(console.debugの
+// [AI Decision]テキストログとは別に、外部からプログラム的に参照できる形式)。
+function buildDecisionRecord(unit, candidates, chosen, group) {
+  return {
+    unitId: unit.id,
+    unitType: unit.type,
+    groupPurpose: group ? group.purpose : null,
+    selectedAction: chosen.kind,
+    target: candidateTarget(chosen),
+    score: {
+      base: chosen.baseScore,
+      strategy: chosen.strategyBonus,
+      group: chosen.groupBonus,
+      mission: chosen.missionBonus,
+      threat: chosen.threatBonus,
+      combat: chosen.combatBonus,
+      total: chosen.score,
+    },
+    candidates: candidates.map((c) => ({
+      action: c.kind,
+      target: candidateTarget(c),
+      totalScore: c.score,
+    })),
+  };
+}
+
 function decideUnitAction(state, unit, situation) {
   const movePoints = UNIT_TYPES[unit.type].move;
   const occupied = occupiedKeysExcluding(state, unit.id);
@@ -1393,6 +1430,7 @@ function decideUnitAction(state, unit, situation) {
   candidates.sort((a, b) => b.score - a.score);
   const chosen = candidates[0];
   logDecision(unit, chosen, group);
+  if (situation.decisionLog) situation.decisionLog.push(buildDecisionRecord(unit, candidates, chosen, group));
   return chosen;
 }
 
@@ -1469,6 +1507,9 @@ function createAIController(state, faction) {
 
   situation.groups = memory.groups;
   situation.unitGroupMap = buildUnitGroupMap(situation.groups);
+  // ユニットごとの判断を構造化データとして蓄積する(console.debugのテキストログとは別に、
+  // 外部から state._aiDebugLog[faction] としてプログラム的に参照できるようにする)
+  situation.decisionLog = [];
 
   async function takeTurn(animateMove) {
     if (AI_DEBUG) {
@@ -1486,6 +1527,13 @@ function createAIController(state, faction) {
       const action = decideUnitAction(state, unit, situation);
       await executeUnitAction(state, unit, action, animateMove);
     }
+
+    // ターンごとの構造化ログを直近 AI_DEBUG_LOG_MAX_TURNS 分だけ保持する(古いものは破棄)
+    if (!state._aiDebugLog) state._aiDebugLog = {};
+    if (!state._aiDebugLog[faction]) state._aiDebugLog[faction] = [];
+    state._aiDebugLog[faction].push({ turn: state.turn, decisions: situation.decisionLog });
+    const overflow = state._aiDebugLog[faction].length - AI_DEBUG_LOG_MAX_TURNS;
+    if (overflow > 0) state._aiDebugLog[faction].splice(0, overflow);
 
     decideAndRunProduction(state, situation);
   }
