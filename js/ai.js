@@ -18,9 +18,6 @@ import { resolveAttack, tryCapture } from "./combat.js";
 // AIの判断理由をブラウザのコンソール(devtools)で確認できるようにするフラグ
 const AI_DEBUG = true;
 
-// state._aiDebugLog[faction] に保持する構造化ログのターン数上限(古いターンから破棄)
-const AI_DEBUG_LOG_MAX_TURNS = 20;
-
 // 評価値表: 各行動のスコアリング基準
 const SCORE = {
   CAPTURE_CITY: 80,
@@ -1528,12 +1525,11 @@ function createAIController(state, faction) {
       await executeUnitAction(state, unit, action, animateMove);
     }
 
-    // ターンごとの構造化ログを直近 AI_DEBUG_LOG_MAX_TURNS 分だけ保持する(古いものは破棄)
+    // ターンごとの構造化ログを今回のプレイ内では全て保持する(プレイ単位での上限は
+    // main.js側のアーカイブ処理(直近20プレイ分)で管理するため、ここでは切り詰めない)
     if (!state._aiDebugLog) state._aiDebugLog = {};
     if (!state._aiDebugLog[faction]) state._aiDebugLog[faction] = [];
     state._aiDebugLog[faction].push({ turn: state.turn, decisions: situation.decisionLog });
-    const overflow = state._aiDebugLog[faction].length - AI_DEBUG_LOG_MAX_TURNS;
-    if (overflow > 0) state._aiDebugLog[faction].splice(0, overflow);
 
     decideAndRunProduction(state, situation);
   }
