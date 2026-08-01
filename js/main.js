@@ -31,6 +31,7 @@ const restartBtn = document.getElementById("restartBtn");
 const mapSelect = document.getElementById("mapSelect");
 const saveBtn = document.getElementById("saveBtn");
 const loadBtn = document.getElementById("loadBtn");
+const logBtn = document.getElementById("logBtn");
 const saveLoadOverlay = document.getElementById("saveLoadOverlay");
 const saveLoadTitle = document.getElementById("saveLoadTitle");
 const saveLoadSlots = document.getElementById("saveLoadSlots");
@@ -347,6 +348,27 @@ loadBtn.addEventListener("click", () => openSaveLoadOverlay("load"));
 cancelSaveLoad.addEventListener("click", () => {
   saveLoadOverlay.classList.add("hidden");
 });
+
+// state._aiDebugLog(AIの構造化された意思決定ログ)をJSONファイルとしてダウンロードする
+function downloadAiLog() {
+  if (!state._aiDebugLog || Object.keys(state._aiDebugLog).length === 0) {
+    alert("AIログがありません(CPUのターンを1回以上実行してください)");
+    return;
+  }
+  const json = JSON.stringify(state._aiDebugLog, null, 2);
+  const blob = new Blob([json], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  a.href = url;
+  a.download = `ai-decision-log_${stamp}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+logBtn.addEventListener("click", downloadAiLog);
 
 window.addEventListener("resize", render);
 onSpriteReady(render); // ユニット画像の読み込み完了時に再描画してフォールバック表示から切り替える
