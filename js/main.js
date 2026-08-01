@@ -37,7 +37,7 @@ const saveLoadSlots = document.getElementById("saveLoadSlots");
 const cancelSaveLoad = document.getElementById("cancelSaveLoad");
 
 const SAVE_SLOTS_KEY = "savegame_slots";
-const SAVE_SLOT_COUNT = 3;
+const SAVE_SLOT_COUNT = 10;
 
 for (const { id, label } of listMaps()) {
   const opt = document.createElement("option");
