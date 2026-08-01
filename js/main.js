@@ -31,8 +31,13 @@ const restartBtn = document.getElementById("restartBtn");
 const mapSelect = document.getElementById("mapSelect");
 const saveBtn = document.getElementById("saveBtn");
 const loadBtn = document.getElementById("loadBtn");
+const saveLoadOverlay = document.getElementById("saveLoadOverlay");
+const saveLoadTitle = document.getElementById("saveLoadTitle");
+const saveLoadSlots = document.getElementById("saveLoadSlots");
+const cancelSaveLoad = document.getElementById("cancelSaveLoad");
 
-const SAVE_KEY = "savegame";
+const SAVE_SLOTS_KEY = "savegame_slots";
+const SAVE_SLOT_COUNT = 3;
 
 for (const { id, label } of listMaps()) {
   const opt = document.createElement("option");
@@ -262,40 +267,71 @@ mapSelect.addEventListener("change", () => {
 // state自体はプレーンなJSONとして丸ごと保存する(state.jsの構造は変更しない)。
 // マップ選択(MAP_ROWS/MAP_COLS/INITIAL_SETUP)はdata.js側のモジュール変数で
 // stateの外にあるため、現在選択中のマップIDも合わせて保存する。
-function saveGame() {
+// 複数スロット(SAVE_SLOT_COUNT個)をひとつの配列としてlocalStorageへ保存する。
+function loadAllSlots() {
   try {
-    const payload = { mapId: getCurrentMapId(), state };
-    localStorage.setItem(SAVE_KEY, JSON.stringify(payload));
-    showTurnBanner("セーブしました");
+    const raw = localStorage.getItem(SAVE_SLOTS_KEY);
+    const slots = raw ? JSON.parse(raw) : [];
+    return Array.isArray(slots) ? slots : [];
+  } catch (err) {
+    console.error("セーブデータの読み込みに失敗しました", err);
+    return [];
+  }
+}
+
+function writeAllSlots(slots) {
+  localStorage.setItem(SAVE_SLOTS_KEY, JSON.stringify(slots));
+}
+
+function formatSlotMeta(entry) {
+  if (!entry || !entry.state) return "(空き)";
+  const factionLabel = entry.state.currentFaction === "player" ? "You" : "CPU";
+  const date = new Date(entry.savedAt);
+  const dateText = Number.isNaN(date.getTime()) ? "" : date.toLocaleString();
+  return `ターン${entry.state.turn} - ${factionLabel} / ${dateText}`;
+}
+
+function openSaveLoadOverlay(mode) {
+  const slots = loadAllSlots();
+  saveLoadTitle.textContent = mode === "save" ? "セーブ先を選択" : "ロードするデータを選択";
+  saveLoadSlots.innerHTML = "";
+  for (let i = 0; i < SAVE_SLOT_COUNT; i++) {
+    const entry = slots.find((s) => s.slot === i);
+    const btn = document.createElement("button");
+    btn.innerHTML = `スロット${i + 1}<span class="slotMeta">${formatSlotMeta(entry)}</span>`;
+    if (mode === "load" && !entry) btn.disabled = true;
+    btn.addEventListener("click", () => {
+      if (mode === "save") saveToSlot(i);
+      else loadFromSlot(i);
+      saveLoadOverlay.classList.add("hidden");
+    });
+    saveLoadSlots.appendChild(btn);
+  }
+  saveLoadOverlay.classList.remove("hidden");
+}
+
+function saveToSlot(slotIndex) {
+  try {
+    const slots = loadAllSlots().filter((s) => s.slot !== slotIndex);
+    slots.push({ slot: slotIndex, mapId: getCurrentMapId(), savedAt: new Date().toISOString(), state });
+    writeAllSlots(slots);
+    showTurnBanner(`スロット${slotIndex + 1}にセーブしました`);
   } catch (err) {
     console.error("セーブに失敗しました", err);
     alert("セーブに失敗しました");
   }
 }
 
-function loadGame() {
-  const raw = localStorage.getItem(SAVE_KEY);
-  if (!raw) {
-    alert("セーブデータがありません");
+function loadFromSlot(slotIndex) {
+  const entry = loadAllSlots().find((s) => s.slot === slotIndex);
+  if (!entry || !entry.state || !entry.mapId) {
+    alert("このスロットにはセーブデータがありません");
     return;
   }
 
-  let payload;
-  try {
-    payload = JSON.parse(raw);
-  } catch (err) {
-    console.error("セーブデータの読み込みに失敗しました", err);
-    alert("セーブデータが壊れています");
-    return;
-  }
-  if (!payload || !payload.state || !payload.mapId) {
-    alert("セーブデータの形式が不正です");
-    return;
-  }
-
-  selectMap(payload.mapId);
-  mapSelect.value = payload.mapId;
-  state = payload.state;
+  selectMap(entry.mapId);
+  mapSelect.value = entry.mapId;
+  state = entry.state;
   controller.clearSelection();
   hideBuildMenu();
   gameOverOverlay.classList.toggle("hidden", !state.gameOver);
@@ -303,11 +339,14 @@ function loadGame() {
   lastTurnKey = `${state.turn}-${state.currentFaction}`; // ロード直後に自動でターンバナーが出ないようにする
   render();
   updateHud();
-  showTurnBanner("ロードしました");
+  showTurnBanner(`スロット${slotIndex + 1}をロードしました`);
 }
 
-saveBtn.addEventListener("click", saveGame);
-loadBtn.addEventListener("click", loadGame);
+saveBtn.addEventListener("click", () => openSaveLoadOverlay("save"));
+loadBtn.addEventListener("click", () => openSaveLoadOverlay("load"));
+cancelSaveLoad.addEventListener("click", () => {
+  saveLoadOverlay.classList.add("hidden");
+});
 
 window.addEventListener("resize", render);
 onSpriteReady(render); // ユニット画像の読み込み完了時に再描画してフォールバック表示から切り替える
