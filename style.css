@@ -215,13 +215,20 @@ button:active:not(:disabled) {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 10px;
   padding: 10px 12px;
   background: #1e293b;
 }
 
 #bottomBar button {
-  width: 100%;
+  flex: 1;
   max-width: 320px;
+}
+
+#bottomBar .secondary {
+  background: #475569;
+  flex: 0 1 90px;
+  max-width: 90px;
 }
 
 #gameOverOverlay {

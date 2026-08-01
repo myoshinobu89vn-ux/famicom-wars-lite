@@ -63,6 +63,19 @@ const THREAT_BONUS = {
   ATTACK_INTO_THREAT: 20, // 攻撃グループ: 敵の脅威圏内へ進出(無謀な突撃でない場合のみ)
 };
 
+// Guard System: Threat Mapへの反応(defendグループ)とは別に、重要拠点には
+// 平時から最低限の守備兵力を維持する。Threat Map/評価値方式を置き換えるのでは
+// なく、その上位の判断材料として作戦グループ編成(guardグループ)に加える。
+const GUARD_BASE = {
+  CAPITAL: 2,
+  FACTORY: 1,
+  CITY: 0,
+};
+const GUARD_THREAT_LEVEL = {
+  CAUTION: 20, // この値以上で「注意」
+  DANGER: 60, // この値以上で「危険」(必要守備力+1)
+};
+
 // Combat Exchange Evaluation: ユニット種類ごとの戦力価値(コストと同期させる)
 const UNIT_VALUE = {
   soldier: UNIT_TYPES.soldier.cost,
@@ -155,6 +168,20 @@ function logDefense(situation, target) {
       `Target:\n${target.label}(${target.row},${target.col})\n` +
       `Threat:\n${target.threatScore}\n` +
       `Reason:\n${describeThreatReason(situation, target)}`
+  );
+}
+
+// 守備隊(guardグループ)の新規編成/増援/解除を [AI Guard] としてログ出力する
+function logGuard({ target, required, current, assignedIds = [], releasedIds = [], reason }) {
+  if (!AI_DEBUG) return;
+  console.debug(
+    `[AI Guard]\n` +
+      `Guard Target:\n${target.label}(${target.row},${target.col})\n` +
+      `Required Defense:\n${required}\n` +
+      `Current Defense:\n${current}\n` +
+      `Assigned Units:\n${assignedIds.length ? assignedIds.join(", ") : "-"}\n` +
+      `Released Units:\n${releasedIds.length ? releasedIds.join(", ") : "-"}\n` +
+      `Reason:\n${reason}`
   );
 }
 
@@ -488,6 +515,39 @@ function pickDefendTarget(state, situation, members) {
   return { row: best.row, col: best.col, label: best.label, threatScore: threatMap[best.row][best.col] };
 }
 
+// Guard System: 拠点ごとにThreat Mapを踏まえた必要守備力(0以上の整数)を算出する。
+// 数値はGUARD_BASE/GUARD_THREAT_LEVELとして定数化済み。首都は必ず基礎守備力を持ち、
+// 工場・都市はThreat Mapの危険度に応じて必要守備力が上がる(都市は平時0、危険化で1)。
+function guardThreatLevel(threatScore) {
+  if (threatScore >= GUARD_THREAT_LEVEL.DANGER) return "danger";
+  if (threatScore >= GUARD_THREAT_LEVEL.CAUTION) return "caution";
+  return "safe";
+}
+
+function guardPointFor(situation, row, col, label, base) {
+  const threatScore = situation.threatMap[row][col];
+  const level = guardThreatLevel(threatScore);
+  let required = base;
+  if (level === "danger") required = base + 1;
+  else if (level === "caution" && base === 0) required = 1;
+  return { row, col, label, threatScore, level, required };
+}
+
+function computeGuardRequirements(state, situation) {
+  const cap = situation.ownCapital;
+  const points = [guardPointFor(situation, cap.row, cap.col, TERRAIN.CAPITAL.label, GUARD_BASE.CAPITAL)];
+  for (let r = 0; r < MAP_ROWS; r++) {
+    for (let c = 0; c < MAP_COLS; c++) {
+      if (r === cap.row && c === cap.col) continue;
+      const terrain = TERRAIN[state.map[r][c]];
+      if (!terrain.capturable || state.ownership[r][c] !== situation.faction) continue;
+      const base = terrain.id === "FACTORY" ? GUARD_BASE.FACTORY : GUARD_BASE.CITY;
+      points.push(guardPointFor(situation, r, c, terrain.label, base));
+    }
+  }
+  return points;
+}
+
 // unit が自軍首都/脅威からの防衛・迎撃を担うのに十分近いか
 function isNearCapital(situation, unit) {
   return manhattan(unit, situation.ownCapital) <= DEFEND_GROUP_RADIUS;
@@ -608,6 +668,118 @@ function formMissingGroups(state, situation, memory, assignedIds, missionLogs) {
   }
 }
 
+// Guard System: ターン開始時に毎回、既存の守備隊(purpose: "guard")を見直し
+// (脅威が下がった/拠点が重要でなくなった等で不要になれば解除して通常の作戦
+// グループへ戻す)、不足している拠点には新規編成・増援を行う。既存の戦略モード
+// 決定・永続グループ・評価値方式の構造は変更せず、group bonus/threat bonus
+// (既存のdefendテーブル/分岐を流用)へ自然に統合するため、新しい評価項目は
+// 追加しない。formMissingGroups/reviewAndFormGroupsより前に実行することで、
+// 攻撃/占領グループの形成前に最低限の守備兵力を優先確保し、既存グループを
+// 極端に崩さないようにする。
+function manageGuardGroups(state, situation, memory) {
+  const requirements = computeGuardRequirements(state, situation);
+  const reqByKey = new Map(requirements.map((p) => [tileKey(p.row, p.col), p]));
+
+  // 1. 既存の守備隊を再評価。必要守備力が0になった拠点の守備隊は解除する。
+  memory.groups = memory.groups.filter((group) => {
+    if (group.purpose !== "guard") return true;
+
+    const liveMembers = group.memberIds
+      .map((id) => state.units.find((u) => u.id === id && u.hp > 0))
+      .filter(Boolean);
+
+    if (liveMembers.length === 0) {
+      logGuard({ target: group.target, required: 0, current: 0, releasedIds: group.memberIds, reason: "部隊全滅により解除" });
+      return false;
+    }
+    group.members = liveMembers;
+    group.memberIds = liveMembers.map((u) => u.id);
+
+    const req = reqByKey.get(tileKey(group.target.row, group.target.col));
+    if (!req || req.required === 0) {
+      logGuard({
+        target: group.target,
+        required: req ? req.required : 0,
+        current: 0,
+        releasedIds: group.memberIds,
+        reason: "脅威低下/前線変化により防衛解除、通常の作戦グループへ復帰",
+      });
+      return false;
+    }
+    group.target = req; // 最新のThreat Map値・分類に更新
+    return true;
+  });
+
+  // 2. 既存グループ(guard含む全種)に属するユニットIDを割当済みとして扱う
+  const assignedIds = new Set(memory.groups.flatMap((g) => g.memberIds));
+
+  // 3. 拠点ごとに不足分を補充する
+  for (const req of requirements) {
+    if (req.required === 0) continue;
+
+    let group = memory.groups.find((g) => g.purpose === "guard" && tileKey(g.target.row, g.target.col) === tileKey(req.row, req.col));
+    let shortage = req.required - (group ? group.members.length : 0);
+    if (shortage <= 0) continue;
+
+    const assignedNow = [];
+
+    // 3a. 未割当ユニットから拠点に近い順に補充する(作戦を壊さない)
+    const freeCandidates = situation.ownUnits
+      .filter((u) => !assignedIds.has(u.id))
+      .sort((a, b) => manhattan(a, req) - manhattan(b, req));
+    for (const u of freeCandidates) {
+      if (shortage <= 0) break;
+      assignedNow.push(u);
+      assignedIds.add(u.id);
+      shortage -= 1;
+    }
+
+    // 3b. それでも不足し、かつ拠点が「危険」な場合のみ、複数人いる攻撃/占領
+    //     グループから最小限(1体ずつ)引き抜く(攻撃グループを極端に崩さない)
+    if (shortage > 0 && req.level === "danger") {
+      const donors = memory.groups
+        .filter((g) => (g.purpose === "attack" || g.purpose === "capture") && g.members.length > 1)
+        .sort((a, b) => manhattan(centroidOf(a.members), req) - manhattan(centroidOf(b.members), req));
+      for (const donor of donors) {
+        if (shortage <= 0) break;
+        const sorted = [...donor.members].sort((a, b) => manhattan(a, req) - manhattan(b, req));
+        const pulled = sorted[0];
+        donor.members = donor.members.filter((u) => u.id !== pulled.id);
+        donor.memberIds = donor.members.map((u) => u.id);
+        assignedNow.push(pulled);
+        assignedIds.add(pulled.id);
+        shortage -= 1;
+      }
+    }
+
+    if (assignedNow.length === 0) continue;
+
+    if (!group) {
+      group = {
+        id: memory.nextGroupId++,
+        purpose: "guard",
+        label: "守備隊",
+        memberIds: [],
+        members: [],
+        target: req,
+        status: "active",
+        createdTurn: state.turn,
+      };
+      memory.groups.push(group);
+    }
+    group.members = [...group.members, ...assignedNow];
+    group.memberIds = group.members.map((u) => u.id);
+
+    logGuard({
+      target: req,
+      required: req.required,
+      current: group.members.length,
+      assignedIds: assignedNow.map((u) => u.id),
+      reason: `脅威度${req.threatScore}(${req.level})のため守備力${req.required}が必要`,
+    });
+  }
+}
+
 // ターン開始時に、永続している作戦グループを継続/変更/破棄のいずれかに判定する。
 // 生き残ったグループにまだ属していないユニットは formMissingGroups に引き継ぐ。
 function reviewAndFormGroups(state, situation, memory) {
@@ -615,6 +787,8 @@ function reviewAndFormGroups(state, situation, memory) {
   const missionLogs = [];
 
   memory.groups = memory.groups.filter((group) => {
+    if (group.purpose === "guard") return true; // Guard Systemが別途管理済み(manageGuardGroups)
+
     const liveMembers = group.memberIds
       .map((id) => state.units.find((u) => u.id === id && u.hp > 0))
       .filter(Boolean);
@@ -904,9 +1078,10 @@ function applyStrategyBonus(candidates, mode) {
   }
 }
 
-// グループの目的(purpose)ごとに異なる加減点を行う。intercept は attack の基準を流用する。
+// グループの目的(purpose)ごとに異なる加減点を行う。intercept は attack の基準を、
+// guard(常駐守備隊)は defend の基準をそれぞれ流用する(新しい評価項目は追加しない)。
 function computePurposeBonus(state, unit, candidate, group, dest) {
-  const purpose = group.purpose === "intercept" ? "attack" : group.purpose;
+  const purpose = group.purpose === "intercept" ? "attack" : group.purpose === "guard" ? "defend" : group.purpose;
   const table = GROUP_PURPOSE_SCORE[purpose];
   if (!table) return { bonus: 0, notes: [] };
 
@@ -1055,7 +1230,7 @@ function computeThreatBonus(state, unit, candidate, group, ctx) {
   let bonus = 0;
   const notes = [];
 
-  if (group.purpose === "defend") {
+  if (group.purpose === "defend" || group.purpose === "guard") {
     const beforeDist = manhattan(unit, group.target);
     const afterDist = manhattan(dest, group.target);
     const targetThreat = threatMap[group.target.row][group.target.col];
@@ -1289,6 +1464,7 @@ function createAIController(state, faction) {
   situation.strategy = decideStrategy(situation);
 
   const memory = getAiMemory(state, faction);
+  manageGuardGroups(state, situation, memory);
   const missionLogs = reviewAndFormGroups(state, situation, memory);
 
   situation.groups = memory.groups;
