@@ -39,6 +39,8 @@ const cancelSaveLoad = document.getElementById("cancelSaveLoad");
 
 const SAVE_SLOTS_KEY = "savegame_slots";
 const SAVE_SLOT_COUNT = 10;
+const AI_LOG_HISTORY_KEY = "ai_log_history";
+const AI_LOG_HISTORY_MAX_PLAYS = 20;
 
 for (const { id, label } of listMaps()) {
   const opt = document.createElement("option");
@@ -50,6 +52,7 @@ mapSelect.value = getCurrentMapId();
 
 let state = createInitialState();
 startTurn(state, "player");
+let currentPlayMapId = getCurrentMapId(); // アーカイブ時に「今のプレイがどのマップだったか」を記録するため
 
 let tileSize = 32;
 let ctx = canvas.getContext("2d");
@@ -244,8 +247,43 @@ endTurnBtn.addEventListener("click", () => {
   endPlayerTurn();
 });
 
+// 終了したプレイのAIログ(state._aiDebugLog)を localStorage の履歴へアーカイブする。
+// state自体は resetGame() のたびに作り直されて消えてしまうため、ターン数ではなく
+// 「直近何プレイ分」という単位で残せるよう、プレイの区切り(リスタート/マップ切替)で
+// ここに退避しておく。直近 AI_LOG_HISTORY_MAX_PLAYS プレイ分だけ保持し、古いものは破棄する。
+function archiveAiLog(finishedState, mapId) {
+  if (!finishedState._aiDebugLog || Object.keys(finishedState._aiDebugLog).length === 0) return;
+
+  let history = [];
+  try {
+    const raw = localStorage.getItem(AI_LOG_HISTORY_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    history = Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.error("AIログ履歴の読み込みに失敗しました", err);
+    history = [];
+  }
+
+  history.push({
+    playId: Date.now(),
+    endedAt: new Date().toISOString(),
+    mapId,
+    aiDebugLog: finishedState._aiDebugLog,
+  });
+  const overflow = history.length - AI_LOG_HISTORY_MAX_PLAYS;
+  if (overflow > 0) history.splice(0, overflow);
+
+  try {
+    localStorage.setItem(AI_LOG_HISTORY_KEY, JSON.stringify(history));
+  } catch (err) {
+    console.error("AIログ履歴の保存に失敗しました", err);
+  }
+}
+
 function resetGame() {
+  archiveAiLog(state, currentPlayMapId);
   state = createInitialState();
+  currentPlayMapId = getCurrentMapId();
   startTurn(state, "player");
   controller.clearSelection();
   hideBuildMenu();
@@ -333,6 +371,7 @@ function loadFromSlot(slotIndex) {
   selectMap(entry.mapId);
   mapSelect.value = entry.mapId;
   state = entry.state;
+  currentPlayMapId = entry.mapId;
   controller.clearSelection();
   hideBuildMenu();
   gameOverOverlay.classList.toggle("hidden", !state.gameOver);
@@ -349,13 +388,31 @@ cancelSaveLoad.addEventListener("click", () => {
   saveLoadOverlay.classList.add("hidden");
 });
 
-// state._aiDebugLog(AIの構造化された意思決定ログ)をJSONファイルとしてダウンロードする
+// アーカイブ済みの過去プレイ(直近AI_LOG_HISTORY_MAX_PLAYS件)+現在進行中のプレイの
+// AIログをまとめてJSONファイルとしてダウンロードする。
 function downloadAiLog() {
-  if (!state._aiDebugLog || Object.keys(state._aiDebugLog).length === 0) {
+  let history = [];
+  try {
+    const raw = localStorage.getItem(AI_LOG_HISTORY_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    history = Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.error("AIログ履歴の読み込みに失敗しました", err);
+    history = [];
+  }
+
+  const currentPlay =
+    state._aiDebugLog && Object.keys(state._aiDebugLog).length > 0
+      ? [{ playId: "current", endedAt: null, mapId: currentPlayMapId, aiDebugLog: state._aiDebugLog }]
+      : [];
+
+  const plays = [...history, ...currentPlay];
+  if (plays.length === 0) {
     alert("AIログがありません(CPUのターンを1回以上実行してください)");
     return;
   }
-  const json = JSON.stringify(state._aiDebugLog, null, 2);
+
+  const json = JSON.stringify({ plays }, null, 2);
   const blob = new Blob([json], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
