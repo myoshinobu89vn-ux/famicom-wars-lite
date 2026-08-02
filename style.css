@@ -31,6 +31,11 @@ html, body {
   flex-wrap: wrap;
 }
 
+#versionTag {
+  font-size: 11px;
+  opacity: 0.5;
+}
+
 #mapSelect {
   background: #0f172a;
   color: #f1f5f9;
