@@ -71,10 +71,31 @@ const GUARD_BASE = {
   FACTORY: 1,
   CITY: 0,
 };
+// expansion/attackフェーズかつ脅威が「安全」な拠点に限り、この緩和後の必要
+// 守備力を使う(危険/注意な拠点は常にGUARD_BASE通りの通常評価のまま)。
+// groupPurposeがguardに偏りすぎて拡大・攻勢が進まない問題への直接対応。
+const GUARD_BASE_RELAXED = {
+  CAPITAL: 1,
+  FACTORY: 0,
+  CITY: 0,
+};
 const GUARD_THREAT_LEVEL = {
   CAUTION: 20, // この値以上で「注意」
   DANGER: 60, // この値以上で「危険」(必要守備力+1)
 };
+
+// 戦況フェーズ: 既存の作戦モード(strategy.mode)をより大局的な語彙で表現したもの。
+// decideStrategy()の判断ロジック・既存の評価関数(computeStrategyBonus等)は
+// 一切変更せず、ログ出力とGuard Systemの緩和判定のためだけに追加する。
+const PHASE_FROM_MODE = {
+  EXPAND: "expansion",
+  ATTACK: "attack",
+  DEFEND: "defense",
+  RECOVER: "retreat",
+};
+function derivePhase(mode) {
+  return PHASE_FROM_MODE[mode] || "expansion";
+}
 
 // Combat Exchange Evaluation: ユニット種類ごとの戦力価値(コストと同期させる)
 const UNIT_VALUE = {
@@ -117,6 +138,12 @@ const GROUP_PURPOSE_SCORE = {
     APPROACH_TARGET: 40, // 設定された敵目標(敵主力/敵工場/敵首都)へ接近
     MAINTAIN_ALLY_DISTANCE: 20, // 同じ攻撃グループの味方と近い距離を保つ
   },
+  // 戦車が2体以上集結したattackグループはassaultへ格上げされる(reconcileAssaultPurpose)。
+  // 集結後は個々の突出より連携維持を重視するため、味方との距離維持の配点を高くする。
+  assault: {
+    APPROACH_TARGET: 40,
+    MAINTAIN_ALLY_DISTANCE: 40,
+  },
   capture: {
     APPROACH_TARGET: 40, // 目標都市への接近
     FAST_CAPTURE: 30, // その場で占領が成立する(占領までのターン数を短縮)
@@ -133,6 +160,15 @@ const GROUP_PURPOSE_SCORE = {
 const MISSION_BONUS = 30; // 同じ作戦目標へ近づく
 const MISSION_PENALTY = -30; // 現在の作戦目標から遠ざかる
 const MISSION_CRITICAL_BONUS = 50; // 作戦目標そのものへの占領/攻撃など、達成に直結する行動
+
+// 「将来価値」: 今ターンの結果だけでなく、次ターン以降の展開(占領可能性・攻撃
+// 可能性・味方との集中度)も加味する。既存の評価値方式(base+strategy+group+
+// mission+threat+combat)を置き換えず、7番目の加減点項目として追加する。
+const FUTURE_BONUS = {
+  CAPTURE_NEXT_TURN: 15, // 移動後、次ターンに占領可能な未占領地へ届く
+  ATTACK_NEXT_TURN: 15, // 移動後、次ターンに敵ユニットを攻撃できる
+  CONCENTRATION: 10, // 移動後、味方との集中度が上がる(group bonusの連携判定とは別枠)
+};
 
 const ADJACENT_OFFSETS = [
   [-1, 0],
@@ -191,9 +227,27 @@ function logStrategy(strategy) {
   console.debug(`[AI Strategy]\nmode: ${strategy.mode}\nreason:\n${reasonLines}`);
 }
 
+// 現在の戦況フェーズ(expansion/attack/defense/retreat)を出力する
+function logPhase(situation) {
+  if (!AI_DEBUG) return;
+  console.debug(`[AI Phase]\nphase: ${situation.phase}\nmode: ${situation.strategy.mode}`);
+}
+
+// 作戦グループのgroupPurpose変更(例: attack→assault)の理由を出力する
+function logPurposeChange(group, oldPurpose, newPurpose, reason) {
+  if (!AI_DEBUG) return;
+  console.debug(
+    `[AI Group Purpose]\n` +
+      `Group ID: ${group.id}\n` +
+      `Old Purpose: ${oldPurpose.toUpperCase()}\n` +
+      `New Purpose: ${newPurpose.toUpperCase()}\n` +
+      `Reason:\n${reason}`
+  );
+}
+
 function logDecision(unit, candidate, group) {
   if (!AI_DEBUG) return;
-  const tag = `${UNIT_TYPES[unit.type].label}#${unit.id}${group ? ` [${group.label}]` : ""}`;
+  const tag = `${UNIT_TYPES[unit.type].label}#${unit.id}${group ? ` [${group.label}/${group.purpose}]` : ""}`;
   const groupNoteText =
     candidate.groupNotes && candidate.groupNotes.length ? ` (${candidate.groupNotes.join(", ")})` : "";
   const missionNoteText =
@@ -202,6 +256,8 @@ function logDecision(unit, candidate, group) {
     candidate.threatNotes && candidate.threatNotes.length ? ` (${candidate.threatNotes.join(", ")})` : "";
   const combatNoteText =
     candidate.combatNotes && candidate.combatNotes.length ? ` (${candidate.combatNotes.join(", ")})` : "";
+  const futureNoteText =
+    candidate.futureNotes && candidate.futureNotes.length ? ` (${candidate.futureNotes.join(", ")})` : "";
   console.debug(
     `[AI Decision] ${tag}:\n` +
       `${candidate.label}${candidate.detail ? ` (${candidate.detail})` : ""}\n` +
@@ -211,6 +267,7 @@ function logDecision(unit, candidate, group) {
       `mission bonus: ${candidate.missionBonus}${missionNoteText}\n` +
       `threat bonus: ${candidate.threatBonus}${threatNoteText}\n` +
       `combat bonus: ${candidate.combatBonus}${combatNoteText}\n` +
+      `future bonus: ${candidate.futureBonus}${futureNoteText}\n` +
       `total: ${candidate.score}`
   );
 }
@@ -524,25 +581,37 @@ function guardThreatLevel(threatScore) {
   return "safe";
 }
 
-function guardPointFor(situation, row, col, label, base) {
+function guardPointFor(situation, row, col, label, base, relaxedBase) {
   const threatScore = situation.threatMap[row][col];
   const level = guardThreatLevel(threatScore);
-  let required = base;
-  if (level === "danger") required = base + 1;
-  else if (level === "caution" && base === 0) required = 1;
+  const isRelaxedPhase = situation.phase === "expansion" || situation.phase === "attack";
+
+  let required;
+  if (level === "danger") {
+    required = base + 1; // 危険時は緩和せず通常通り
+  } else if (level === "caution") {
+    required = base === 0 ? 1 : base; // 注意な都市は最低限守る、それ以外は通常通り
+  } else {
+    // safe: expansion/attackフェーズなら最低限まで緩和し、拡大・攻勢に兵力を回す
+    required = isRelaxedPhase ? relaxedBase : base;
+  }
   return { row, col, label, threatScore, level, required };
 }
 
 function computeGuardRequirements(state, situation) {
   const cap = situation.ownCapital;
-  const points = [guardPointFor(situation, cap.row, cap.col, TERRAIN.CAPITAL.label, GUARD_BASE.CAPITAL)];
+  const points = [
+    guardPointFor(situation, cap.row, cap.col, TERRAIN.CAPITAL.label, GUARD_BASE.CAPITAL, GUARD_BASE_RELAXED.CAPITAL),
+  ];
   for (let r = 0; r < MAP_ROWS; r++) {
     for (let c = 0; c < MAP_COLS; c++) {
       if (r === cap.row && c === cap.col) continue;
       const terrain = TERRAIN[state.map[r][c]];
       if (!terrain.capturable || state.ownership[r][c] !== situation.faction) continue;
-      const base = terrain.id === "FACTORY" ? GUARD_BASE.FACTORY : GUARD_BASE.CITY;
-      points.push(guardPointFor(situation, r, c, terrain.label, base));
+      const isFactory = terrain.id === "FACTORY";
+      const base = isFactory ? GUARD_BASE.FACTORY : GUARD_BASE.CITY;
+      const relaxedBase = isFactory ? GUARD_BASE_RELAXED.FACTORY : GUARD_BASE_RELAXED.CITY;
+      points.push(guardPointFor(situation, r, c, terrain.label, base, relaxedBase));
     }
   }
   return points;
@@ -558,7 +627,7 @@ function isNearThreat(situation, unit) {
 
 // グループの目標をすでに達成したか(=目標地形を自軍が占領済みか、迎撃対象が消えたか)
 function isGroupTargetAchieved(state, situation, group) {
-  if (group.purpose === "attack" || group.purpose === "capture") {
+  if (group.purpose === "attack" || group.purpose === "assault" || group.purpose === "capture") {
     if (ownerAt(state, group.target.row, group.target.col) === situation.faction) return true;
   }
   if (group.purpose === "intercept") {
@@ -570,7 +639,7 @@ function isGroupTargetAchieved(state, situation, group) {
 
 // 目標付近の敵戦力に対し、グループの残存戦力が著しく劣っていれば無理に攻略を続けさせない
 function isGroupOverwhelmed(situation, group) {
-  if (group.purpose !== "attack" && group.purpose !== "intercept") return false;
+  if (group.purpose !== "attack" && group.purpose !== "assault" && group.purpose !== "intercept") return false;
   const groupPower = computePowerScore(group.members);
   const nearbyEnemyPower = computePowerScore(
     situation.enemyUnits.filter((u) => manhattan(u, group.target) <= DEFEND_GROUP_RADIUS)
@@ -581,7 +650,7 @@ function isGroupOverwhelmed(situation, group) {
 // 現在の目標を維持すべきか、より重要/近い目標へ切り替えるべきかを判定する
 function reevaluateTarget(state, situation, group) {
   let idealTarget = null;
-  if (group.purpose === "attack") idealTarget = pickAttackTarget(state, situation, group.members);
+  if (group.purpose === "attack" || group.purpose === "assault") idealTarget = pickAttackTarget(state, situation, group.members);
   else if (group.purpose === "capture") idealTarget = pickCaptureTarget(situation, group.members);
   else if (group.purpose === "intercept") idealTarget = pickInterceptTarget(situation, group.members);
   else if (group.purpose === "defend") idealTarget = pickDefendTarget(state, situation, group.members);
@@ -780,6 +849,19 @@ function manageGuardGroups(state, situation, memory) {
   }
 }
 
+// groupPurposeは固定ではなく毎ターン見直す。戦車が2体以上集結したattackグループは
+// assault(強襲)へ格上げし、離脱して1体以下に減ればattackへ戻す。intercept/
+// capture/defend/guardは対象外(それぞれ独立した目的のため)。
+function reconcileAssaultPurpose(group) {
+  if (group.purpose === "attack" && group.members.length >= 2) {
+    return { purpose: "assault", reason: `戦車${group.members.length}体が集結したため攻撃グループをassaultへ強化` };
+  }
+  if (group.purpose === "assault" && group.members.length < 2) {
+    return { purpose: "attack", reason: "戦力が分散したためassaultからattackへ縮小" };
+  }
+  return null;
+}
+
 // ターン開始時に、永続している作戦グループを継続/変更/破棄のいずれかに判定する。
 // 生き残ったグループにまだ属していないユニットは formMissingGroups に引き継ぐ。
 function reviewAndFormGroups(state, situation, memory) {
@@ -835,6 +917,18 @@ function reviewAndFormGroups(state, situation, memory) {
 
   const assignedIds = new Set(memory.groups.flatMap((g) => g.memberIds));
   formMissingGroups(state, situation, memory, assignedIds, missionLogs);
+
+  // 戦車が2体以上集結したattackグループはassaultへ格上げ、離脱して手薄になれば
+  // attackへ戻す。formMissingGroupsで今ターン新規形成されたグループも対象に
+  // 含めるため、新規/増援の形成が終わった後にまとめて判定する。
+  for (const group of memory.groups) {
+    const reconciled = reconcileAssaultPurpose(group);
+    if (!reconciled) continue;
+    const oldPurpose = group.purpose;
+    group.purpose = reconciled.purpose;
+    group.label = reconciled.purpose === "assault" ? "強襲グループ" : "攻撃グループ";
+    logPurposeChange(group, oldPurpose, reconciled.purpose, reconciled.reason);
+  }
 
   return missionLogs;
 }
@@ -1090,7 +1184,7 @@ function computePurposeBonus(state, unit, candidate, group, dest) {
   const beforeDist = manhattan(unit, group.target);
   const afterDist = manhattan(dest, group.target);
 
-  if (purpose === "attack") {
+  if (purpose === "attack" || purpose === "assault") {
     if (afterDist < beforeDist) {
       bonus += table.APPROACH_TARGET;
       notes.push("設定された敵目標へ接近");
@@ -1098,7 +1192,7 @@ function computePurposeBonus(state, unit, candidate, group, dest) {
     const nearGroupAllies = group.members.some((u) => u.id !== unit.id && manhattan(u, dest) <= SUPPORT_RANGE * 2);
     if (nearGroupAllies) {
       bonus += table.MAINTAIN_ALLY_DISTANCE;
-      notes.push("同じ攻撃グループの味方と距離維持");
+      notes.push(purpose === "assault" ? "強襲グループの連携を維持" : "同じ攻撃グループの味方と距離維持");
     }
   } else if (purpose === "capture") {
     if (afterDist < beforeDist) {
@@ -1241,7 +1335,7 @@ function computeThreatBonus(state, unit, candidate, group, ctx) {
       bonus += THREAT_BONUS.DEFEND_LEAVE_KEY_POINT;
       notes.push("防衛対象(重要拠点)から離れる");
     }
-  } else if (group.purpose === "attack" || group.purpose === "intercept") {
+  } else if (group.purpose === "attack" || group.purpose === "assault" || group.purpose === "intercept") {
     const destThreat = threatMap[dest.row][dest.col];
     const currentThreat = threatMap[unit.row][unit.col];
     if (destThreat > currentThreat) {
@@ -1358,6 +1452,53 @@ function applyCombatBonus(candidates, state, unit, situation, group) {
   }
 }
 
+// 「将来価値」: 今ターンの結果だけでなく、次ターン以降の展開を加味する。
+// 攻撃・占領がその場で成立する行動は「今」評価されるべきなので対象外とする。
+function computeFutureBonus(unit, candidate, situation) {
+  if (candidate.kind === "attack" || candidate.kind === "capture") return { bonus: 0, notes: [] };
+
+  const dest = { row: candidate.entry.row, col: candidate.entry.col };
+  const moveRange = UNIT_TYPES[unit.type].move;
+  let bonus = 0;
+  const notes = [];
+
+  // 次ターンに占領できる可能性: 移動後の位置から、その移動力で届く未占領地があるか
+  if (UNIT_TYPES[unit.type].canCapture) {
+    const canCaptureNextTurn = situation.captureTargets.some((t) => manhattan(dest, t) <= moveRange);
+    if (canCaptureNextTurn) {
+      bonus += FUTURE_BONUS.CAPTURE_NEXT_TURN;
+      notes.push("次ターンに占領可能な位置");
+    }
+  }
+
+  // 次ターンに攻撃可能になる位置: 移動力+隣接で敵に届くか
+  const canAttackNextTurn = situation.enemyUnits.some((u) => manhattan(dest, u) <= moveRange + 1);
+  if (canAttackNextTurn) {
+    bonus += FUTURE_BONUS.ATTACK_NEXT_TURN;
+    notes.push("次ターンに攻撃可能な位置");
+  }
+
+  // 味方ユニットとの集中度: 移動後、周囲の味方数が今より増えるか(group bonusの
+  // 連携判定とは別枠で、グループ未所属のユニットにも一律で働かせる)
+  const alliesNearNow = situation.ownUnits.filter((u) => u.id !== unit.id && manhattan(u, unit) <= SUPPORT_RANGE).length;
+  const alliesNearDest = situation.ownUnits.filter((u) => u.id !== unit.id && manhattan(u, dest) <= SUPPORT_RANGE).length;
+  if (alliesNearDest > alliesNearNow) {
+    bonus += FUTURE_BONUS.CONCENTRATION;
+    notes.push("味方との集中度が上がる");
+  }
+
+  return { bonus, notes };
+}
+
+function applyFutureBonus(candidates, unit, situation) {
+  for (const c of candidates) {
+    const { bonus, notes } = computeFutureBonus(unit, c, situation);
+    c.futureBonus = bonus;
+    c.futureNotes = notes;
+    c.score += bonus;
+  }
+}
+
 // ユニット1体分の行動を評価値方式で決定する
 // (候補を全て生成→作戦補正→グループ連携補正→作戦継続性補正→最高評価を採用)
 // 候補の「対象」座標。攻撃候補は攻撃相手のマス、それ以外は移動先のマスを指す。
@@ -1384,6 +1525,7 @@ function buildDecisionRecord(unit, candidates, chosen, group) {
       mission: chosen.missionBonus,
       threat: chosen.threatBonus,
       combat: chosen.combatBonus,
+      future: chosen.futureBonus,
       total: chosen.score,
     },
     candidates: candidates.map((c) => ({
@@ -1423,6 +1565,7 @@ function decideUnitAction(state, unit, situation) {
   applyMissionBonus(candidates, unit, group);
   applyThreatBonus(candidates, state, unit, group, ctx);
   applyCombatBonus(candidates, state, unit, ctx, group);
+  applyFutureBonus(candidates, unit, ctx);
 
   candidates.sort((a, b) => b.score - a.score);
   const chosen = candidates[0];
@@ -1497,6 +1640,7 @@ function createAIController(state, faction) {
   const situation = analyzeSituation(state, faction);
   situation.threatMap = threatMap;
   situation.strategy = decideStrategy(situation);
+  situation.phase = derivePhase(situation.strategy.mode);
 
   const memory = getAiMemory(state, faction);
   manageGuardGroups(state, situation, memory);
@@ -1514,6 +1658,7 @@ function createAIController(state, faction) {
         `[AI] === ターン${state.turn} ${faction}軍 状況分析 === 所持金${situation.money}G 自軍${situation.ownUnits.length}体 敵軍${situation.enemyUnits.length}体`
       );
       logThreatMap(state, situation);
+      logPhase(situation);
       logStrategy(situation.strategy);
       logMissionReviews(missionLogs);
       logGroups(situation.groups);
@@ -1529,7 +1674,7 @@ function createAIController(state, faction) {
     // main.js側のアーカイブ処理(直近20プレイ分)で管理するため、ここでは切り詰めない)
     if (!state._aiDebugLog) state._aiDebugLog = {};
     if (!state._aiDebugLog[faction]) state._aiDebugLog[faction] = [];
-    state._aiDebugLog[faction].push({ turn: state.turn, decisions: situation.decisionLog });
+    state._aiDebugLog[faction].push({ turn: state.turn, phase: situation.phase, decisions: situation.decisionLog });
 
     decideAndRunProduction(state, situation);
   }

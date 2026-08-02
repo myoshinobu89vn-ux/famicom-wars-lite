@@ -237,4 +237,4 @@ export let INITIAL_SETUP = MAP_DEFS[currentMapId].initialSetup;
 export const STARTING_MONEY = 300;
 
 // 画面表示用のアプリバージョン。機能追加のたびに手動で更新する。
-export const APP_VERSION = "1.0.0";
+export const APP_VERSION = "1.1.0";
