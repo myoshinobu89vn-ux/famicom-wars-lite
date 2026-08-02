@@ -21,6 +21,7 @@ export function createInputController({ getState, requestRender, updateHud, show
   let lastMovePath = null; // 移動後キャンセル用の経路(反転して元の位置に戻す)
   let inspectedUnit = null; // 敵ユニットを閲覧中(移動範囲を見るだけで操作はできない)
   let inspectedReachable = new Map();
+  let playerTurnLog = []; // このターン中にプレイヤーが確定させた行動の記録(AIの構造化ログと同じ形式)
 
   // 移動後メニューでどの行動を選べるか(隣接する敵がいれば攻撃、占領可能地形にいれば占領)
   function computePostMoveOptions() {
@@ -123,7 +124,28 @@ export function createInputController({ getState, requestRender, updateHud, show
     requestRender(getUiState());
   }
 
-  function finishUnitAction() {
+  // 確定した行動(攻撃/占領/待機)を、AI側の構造化ログ(state._aiDebugLog)と同じ
+  // {unitId, unitType, selectedAction, target} 形式で記録する(スコア/候補は
+  // プレイヤーには存在しないため含めない)。
+  function recordPlayerAction(actionKind, target) {
+    if (!selectedUnit) return;
+    playerTurnLog.push({
+      unitId: selectedUnit.id,
+      unitType: selectedUnit.type,
+      selectedAction: actionKind,
+      target,
+    });
+  }
+
+  // ターン終了時に main.js から呼ばれ、蓄積した行動記録を取り出してリセットする
+  function flushPlayerTurnLog() {
+    const log = playerTurnLog;
+    playerTurnLog = [];
+    return log;
+  }
+
+  function finishUnitAction(actionKind, target) {
+    if (actionKind) recordPlayerAction(actionKind, target);
     clearSelection();
     updateHud();
     requestRender(getUiState());
@@ -172,14 +194,14 @@ export function createInputController({ getState, requestRender, updateHud, show
 
     moveSelectedTo(bestTile.row, bestTile.col);
     resolveAttack(state, selectedUnit, target);
-    finishUnitAction();
+    finishUnitAction("attack", { row: target.row, col: target.col });
     return true;
   }
 
   function handleWait() {
     if (!selectedUnit || mode !== "postMove" || isAnimating) return;
     selectedUnit.moved = true;
-    finishUnitAction();
+    finishUnitAction("wait", { row: selectedUnit.row, col: selectedUnit.col });
   }
 
   function handleAttack() {
@@ -188,7 +210,7 @@ export function createInputController({ getState, requestRender, updateHud, show
     if (!options || !options.canAttack) return;
     const state = getState();
     resolveAttack(state, selectedUnit, options.attackTarget);
-    finishUnitAction();
+    finishUnitAction("attack", { row: options.attackTarget.row, col: options.attackTarget.col });
   }
 
   function handleCapture() {
@@ -197,7 +219,7 @@ export function createInputController({ getState, requestRender, updateHud, show
     if (!options || !options.canCapture) return;
     const state = getState();
     tryCapture(state, selectedUnit);
-    finishUnitAction();
+    finishUnitAction("capture", { row: selectedUnit.row, col: selectedUnit.col });
   }
 
   async function handleCancelMove() {
@@ -231,7 +253,7 @@ export function createInputController({ getState, requestRender, updateHud, show
       const target = getUnitAt(state, row, col);
       if (target && target.faction === opponentOf(selectedUnit.faction) && isAdjacent(selectedUnit, { row, col })) {
         resolveAttack(state, selectedUnit, target);
-        finishUnitAction();
+        finishUnitAction("attack", { row, col });
       }
       return;
     }
@@ -293,5 +315,6 @@ export function createInputController({ getState, requestRender, updateHud, show
     getUiState,
     isAnimating: () => isAnimating,
     isPostMove: () => mode === "postMove",
+    flushPlayerTurnLog,
   };
 }

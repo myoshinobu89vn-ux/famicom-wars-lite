@@ -224,6 +224,15 @@ async function endPlayerTurn() {
   controller.clearSelection();
   hideBuildMenu();
 
+  // プレイヤーがこのターン中に確定させた行動を、AI側と同じstate._aiDebugLog構造の
+  // "player"キーへ記録する(ai.jsはcpu分のみ書き込むため、ここは無競合)
+  const playerDecisions = controller.flushPlayerTurnLog();
+  if (playerDecisions.length > 0) {
+    if (!state._aiDebugLog) state._aiDebugLog = {};
+    if (!state._aiDebugLog.player) state._aiDebugLog.player = [];
+    state._aiDebugLog.player.push({ turn: state.turn, decisions: playerDecisions });
+  }
+
   endTurnBtn.disabled = true;
   state.currentFaction = "cpu";
   startTurn(state, "cpu");
@@ -282,6 +291,7 @@ function archiveAiLog(finishedState, mapId) {
 
 function resetGame() {
   archiveAiLog(state, currentPlayMapId);
+  controller.flushPlayerTurnLog(); // 未確定(このターン未終了)の行動記録を破棄し、次のプレイに持ち越さない
   state = createInitialState();
   currentPlayMapId = getCurrentMapId();
   startTurn(state, "player");
