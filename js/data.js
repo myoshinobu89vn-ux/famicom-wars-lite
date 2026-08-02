@@ -235,3 +235,6 @@ export let MAP_COLS = MAP_DEFS[currentMapId].layoutKeys[0].length;
 export let INITIAL_SETUP = MAP_DEFS[currentMapId].initialSetup;
 
 export const STARTING_MONEY = 300;
+
+// 画面表示用のアプリバージョン。機能追加のたびに手動で更新する。
+export const APP_VERSION = "1.1.0";

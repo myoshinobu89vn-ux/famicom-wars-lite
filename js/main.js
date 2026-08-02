@@ -1,6 +1,6 @@
 // 各モジュールの結線・ゲームループ・DOM連携
 
-import { UNIT_TYPES, listMaps, selectMap, getCurrentMapId } from "./data.js";
+import { UNIT_TYPES, listMaps, selectMap, getCurrentMapId, APP_VERSION } from "./data.js";
 import { createInitialState, startTurn, factionStats } from "./state.js";
 import { checkGameOver } from "./state.js";
 import { computeTileSize, resizeCanvasForDpr, drawScene, xyToRowCol } from "./render.js";
@@ -36,6 +36,8 @@ const saveLoadOverlay = document.getElementById("saveLoadOverlay");
 const saveLoadTitle = document.getElementById("saveLoadTitle");
 const saveLoadSlots = document.getElementById("saveLoadSlots");
 const cancelSaveLoad = document.getElementById("cancelSaveLoad");
+const versionTag = document.getElementById("versionTag");
+versionTag.textContent = `v${APP_VERSION}`;
 
 const SAVE_SLOTS_KEY = "savegame_slots";
 const SAVE_SLOT_COUNT = 10;
