@@ -31,3 +31,7 @@ python -m http.server 8000
 ## デプロイ (GitHub Pages)
 
 `main`ブランチにpush後、リポジトリの Settings → Pages で `Deploy from branch: main / (root)` を選択。発行されたURLをiPhoneのSafariで開き、共有ボタンから「ホーム画面に追加」するとアプリのように起動できる。
+
+## おまけ: タイプ相性クイズ
+
+`pokemon-type-quiz/` に、ポケモンGOのタイプ相性を学べる3択クイズアプリを同梱している。詳細は [pokemon-type-quiz/README.md](pokemon-type-quiz/README.md) を参照。

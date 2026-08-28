@@ -1,0 +1,244 @@
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  --bg-top: #4aa3e0;
+  --bg-bottom: #1c5fa8;
+  --card-bg: #ffffff;
+  --text-main: #1b2a4a;
+  --text-sub: #6b7a99;
+  --correct-color: #2fbf71;
+  --correct-bg: #e6f9ee;
+  --incorrect-color: #e5484d;
+  --incorrect-bg: #fde8e8;
+
+  --type-ノーマル: #a4ac97;
+  --type-ほのお: #f0803c;
+  --type-みず: #4f92d6;
+  --type-でんき: #f4d23c;
+  --type-くさ: #63bb5b;
+  --type-こおり: #74cec0;
+  --type-かくとう: #ce4069;
+  --type-どく: #ab6ac8;
+  --type-じめん: #d97845;
+  --type-ひこう: #8fa8dd;
+  --type-エスパー: #f97176;
+  --type-むし: #90c12c;
+  --type-いわ: #c7b78b;
+  --type-ゴースト: #5269ac;
+  --type-ドラゴン: #0a6dc4;
+  --type-あく: #5a5366;
+  --type-はがね: #5a8ea1;
+  --type-フェアリー: #ec8fe6;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Hiragino Sans", "Yu Gothic", "Segoe UI", sans-serif;
+  background: linear-gradient(180deg, var(--bg-top) 0%, var(--bg-bottom) 100%);
+  color: var(--text-main);
+  display: flex;
+  justify-content: center;
+}
+
+.app {
+  width: 100%;
+  max-width: 480px;
+  padding: 20px 16px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.app-header {
+  text-align: center;
+  color: #ffffff;
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 1.6rem;
+  letter-spacing: 0.05em;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.subtitle {
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+  opacity: 0.9;
+}
+
+.quiz-card {
+  background: var(--card-bg);
+  border-radius: 20px;
+  padding: 20px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.score-board {
+  display: flex;
+  justify-content: space-around;
+  border-bottom: 1px solid #eef1f6;
+  padding-bottom: 12px;
+}
+
+.score-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.score-label {
+  font-size: 0.75rem;
+  color: var(--text-sub);
+}
+
+.score-value {
+  font-size: 1.2rem;
+  font-weight: bold;
+}
+
+.question-area {
+  text-align: center;
+}
+
+.question-prompt {
+  margin: 0 0 12px;
+  font-size: 0.95rem;
+  color: var(--text-sub);
+}
+
+.type-display {
+  display: inline-block;
+  min-width: 60%;
+  padding: 16px 24px;
+  font-size: 1.8rem;
+  font-weight: bold;
+  color: #fff;
+  border-radius: 16px;
+  background: #8fa8dd;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.choices-area {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.choice-button {
+  padding: 18px;
+  font-size: 1.1rem;
+  font-weight: bold;
+  color: #fff;
+  background: #8fa8dd;
+  border: none;
+  border-radius: 14px;
+  cursor: pointer;
+  transition: transform 0.1s ease, opacity 0.15s ease;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.choice-button:active {
+  transform: scale(0.97);
+}
+
+.choice-button:disabled {
+  cursor: default;
+}
+
+.choice-button.correct {
+  outline: 4px solid var(--correct-color);
+  outline-offset: -4px;
+}
+
+.choice-button.incorrect {
+  outline: 4px solid var(--incorrect-color);
+  outline-offset: -4px;
+}
+
+.choice-button:disabled:not(.correct):not(.incorrect) {
+  opacity: 0.5;
+}
+
+.result-area {
+  border-radius: 14px;
+  padding: 16px;
+  text-align: center;
+}
+
+.result-area.result-correct {
+  background: var(--correct-bg);
+}
+
+.result-area.result-incorrect {
+  background: var(--incorrect-bg);
+}
+
+.result-judge {
+  margin: 0 0 8px;
+  font-size: 1.3rem;
+  font-weight: bold;
+}
+
+.result-correct .result-judge {
+  color: var(--correct-color);
+}
+
+.result-incorrect .result-judge {
+  color: var(--incorrect-color);
+}
+
+.result-detail p {
+  margin: 4px 0;
+  font-size: 0.95rem;
+  color: var(--text-main);
+}
+
+.next-button {
+  padding: 16px;
+  font-size: 1.1rem;
+  font-weight: bold;
+  color: #fff;
+  background: var(--bg-bottom);
+  border: none;
+  border-radius: 14px;
+  cursor: pointer;
+}
+
+.next-button:active {
+  transform: scale(0.98);
+}
+
+/* タイプごとの色分け */
+.type-ノーマル { background: var(--type-ノーマル); }
+.type-ほのお { background: var(--type-ほのお); }
+.type-みず { background: var(--type-みず); }
+.type-でんき { background: var(--type-でんき); }
+.type-くさ { background: var(--type-くさ); }
+.type-こおり { background: var(--type-こおり); }
+.type-かくとう { background: var(--type-かくとう); }
+.type-どく { background: var(--type-どく); }
+.type-じめん { background: var(--type-じめん); }
+.type-ひこう { background: var(--type-ひこう); }
+.type-エスパー { background: var(--type-エスパー); }
+.type-むし { background: var(--type-むし); }
+.type-いわ { background: var(--type-いわ); }
+.type-ゴースト { background: var(--type-ゴースト); }
+.type-ドラゴン { background: var(--type-ドラゴン); }
+.type-あく { background: var(--type-あく); }
+.type-はがね { background: var(--type-はがね); }
+.type-フェアリー { background: var(--type-フェアリー); }
+
+@media (max-width: 360px) {
+  .type-display {
+    font-size: 1.5rem;
+    padding: 14px 18px;
+  }
+}

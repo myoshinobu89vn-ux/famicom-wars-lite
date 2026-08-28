@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>タイプ相性クイズ</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <header class="app-header">
+    <h1>タイプ相性クイズ</h1>
+    <p class="subtitle">ポケモンGOのタイプ相性を覚えよう</p>
+  </header>
+
+  <main class="quiz-card">
+    <section class="score-board">
+      <div class="score-item">
+        <span class="score-label">連続正解</span>
+        <span id="streak-score" class="score-value">0</span>
+      </div>
+      <div class="score-item">
+        <span class="score-label">正解数</span>
+        <span id="total-score" class="score-value">0 / 0</span>
+      </div>
+    </section>
+
+    <section class="question-area">
+      <p class="question-prompt">このタイプに効果抜群な攻撃タイプは？</p>
+      <div id="question-type" class="type-display">-</div>
+    </section>
+
+    <section id="choices" class="choices-area"></section>
+
+    <section id="result-area" class="result-area" hidden>
+      <p id="result-judge" class="result-judge"></p>
+      <div id="result-detail" class="result-detail"></div>
+    </section>
+
+    <button id="next-button" class="next-button" hidden>次の問題へ</button>
+  </main>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
