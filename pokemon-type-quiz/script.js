@@ -96,8 +96,18 @@ function renderQuestion() {
     choicesArea.appendChild(button);
   });
 
-  resultArea.hidden = true;
-  nextButton.hidden = true;
+  // 解答前に解説文を先に描画しておくことで、回答後もレイアウトの高さが変わらないようにする
+  const effectiveTypes = TYPE_CHART[currentType];
+  const effectiveList = effectiveTypes.join('、');
+  resultDetail.innerHTML = [
+    `「${currentType}」タイプに効果抜群な攻撃タイプ：${effectiveList}`,
+    `「${correctAnswer}」は「${currentType}」に効果抜群です。`,
+  ].map((line) => `<p>${line}</p>`).join('');
+  resultJudge.innerHTML = '&nbsp;';
+
+  resultArea.className = 'result-area invisible';
+  nextButton.classList.add('invisible');
+  nextButton.disabled = true;
 }
 
 function handleAnswer(selectedType, selectedButton) {
@@ -123,19 +133,11 @@ function handleAnswer(selectedType, selectedButton) {
     }
   });
 
-  resultArea.hidden = false;
   resultArea.className = 'result-area ' + (isCorrect ? 'result-correct' : 'result-incorrect');
   resultJudge.textContent = isCorrect ? '正解！' : '不正解…';
 
-  const effectiveTypes = TYPE_CHART[currentType];
-  const effectiveList = effectiveTypes.join('、');
-  const detailLines = [
-    `「${currentType}」タイプに効果抜群な攻撃タイプ：${effectiveList}`,
-    `「${currentCorrectAnswer}」は「${currentType}」に効果抜群です。`,
-  ];
-  resultDetail.innerHTML = detailLines.map((line) => `<p>${line}</p>`).join('');
-
-  nextButton.hidden = false;
+  nextButton.classList.remove('invisible');
+  nextButton.disabled = false;
 }
 
 function updateScoreDisplay() {
