@@ -183,6 +183,12 @@ body {
   text-align: center;
 }
 
+/* 回答前も要素の占有スペースは保持し、表示/非表示だけを切り替える
+   （display:noneにすると回答後にレイアウトの高さが変わってしまうため） */
+.invisible {
+  visibility: hidden;
+}
+
 .result-area.result-correct {
   background: var(--correct-bg);
 }
@@ -194,6 +200,7 @@ body {
 .result-judge {
   margin: 0 0 clamp(2px, 0.8vh, 8px);
   font-size: clamp(1rem, 2.6vh, 1.3rem);
+  line-height: 1.3;
   font-weight: bold;
 }
 
@@ -208,6 +215,7 @@ body {
 .result-detail p {
   margin: 2px 0;
   font-size: clamp(0.75rem, 1.8vh, 0.95rem);
+  line-height: 1.4;
   color: var(--text-main);
 }
 
