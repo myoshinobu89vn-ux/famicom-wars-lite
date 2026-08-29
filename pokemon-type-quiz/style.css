@@ -45,18 +45,18 @@ body {
   background: linear-gradient(180deg, var(--bg-top) 0%, var(--bg-bottom) 100%);
   color: var(--text-main);
   display: flex;
-  align-items: center;
   justify-content: center;
 }
 
 .app {
   width: 100%;
   max-width: 480px;
-  max-height: 100%;
+  height: 100%;
   padding: clamp(6px, 1.6vh, 16px) 16px;
   display: flex;
   flex-direction: column;
   gap: clamp(3px, 1vh, 10px);
+  min-height: 0;
 }
 
 .app-header {
@@ -79,13 +79,15 @@ body {
 }
 
 .quiz-card {
+  flex: 1 1 auto;
+  min-height: 0;
   background: var(--card-bg);
   border-radius: 20px;
-  padding: clamp(8px, 1.8vh, 16px);
+  padding: clamp(7px, 1.8vh, 16px);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
   display: flex;
   flex-direction: column;
-  gap: clamp(4px, 1.1vh, 12px);
+  gap: clamp(3px, 1.1vh, 12px);
 }
 
 .score-board {
@@ -178,8 +180,13 @@ body {
 }
 
 .result-area {
+  flex: 1 1 auto;
+  min-height: 0;
   border-radius: 14px;
-  padding: clamp(5px, 1.2vh, 12px);
+  padding: clamp(8px, 2vh, 18px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   text-align: center;
 }
 
@@ -198,8 +205,8 @@ body {
 }
 
 .result-judge {
-  margin: 0 0 clamp(1px, 0.5vh, 6px);
-  font-size: clamp(0.9rem, 2.2vh, 1.15rem);
+  margin: 0 0 clamp(3px, 1vh, 10px);
+  font-size: clamp(1.05rem, 2.6vh, 1.35rem);
   line-height: 1.3;
   font-weight: bold;
 }
@@ -213,9 +220,9 @@ body {
 }
 
 .result-detail p {
-  margin: 1px 0;
-  font-size: clamp(0.65rem, 1.4vh, 0.82rem);
-  line-height: 1.35;
+  margin: clamp(1px, 0.6vh, 6px) 0;
+  font-size: clamp(0.9rem, 2.3vh, 1.1rem);
+  line-height: 1.55;
   color: var(--text-main);
 }
 
