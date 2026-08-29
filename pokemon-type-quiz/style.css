@@ -52,10 +52,10 @@ body {
   width: 100%;
   max-width: 480px;
   height: 100%;
-  padding: clamp(6px, 1.6vh, 16px) 16px;
+  padding: clamp(5px, 1.6vh, 16px) 16px;
   display: flex;
   flex-direction: column;
-  gap: clamp(3px, 1vh, 10px);
+  gap: clamp(2px, 1vh, 10px);
   min-height: 0;
 }
 
@@ -83,11 +83,11 @@ body {
   min-height: 0;
   background: var(--card-bg);
   border-radius: 20px;
-  padding: clamp(7px, 1.8vh, 16px);
+  padding: clamp(6px, 1.8vh, 16px);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
   display: flex;
   flex-direction: column;
-  gap: clamp(3px, 1.1vh, 12px);
+  gap: clamp(2px, 1.1vh, 12px);
 }
 
 .score-board {
@@ -141,11 +141,11 @@ body {
 .choices-area {
   display: flex;
   flex-direction: column;
-  gap: clamp(4px, 1vh, 10px);
+  gap: clamp(3px, 1vh, 10px);
 }
 
 .choice-button {
-  padding: clamp(6px, 1.4vh, 14px) 16px;
+  padding: clamp(6px, 1.2vh, 14px) 16px;
   font-size: clamp(0.85rem, 1.9vh, 1rem);
   font-weight: bold;
   color: #fff;
@@ -166,13 +166,13 @@ body {
 }
 
 .choice-button.correct {
-  outline: 4px solid var(--correct-color);
-  outline-offset: -4px;
+  outline: 3px solid var(--correct-color);
+  outline-offset: -3px;
 }
 
 .choice-button.incorrect {
-  outline: 4px solid var(--incorrect-color);
-  outline-offset: -4px;
+  outline: 3px solid var(--incorrect-color);
+  outline-offset: -3px;
 }
 
 .choice-button:disabled:not(.correct):not(.incorrect) {
@@ -182,6 +182,7 @@ body {
 .result-area {
   flex: 1 1 auto;
   min-height: 0;
+  margin-top: clamp(2px, 0.5vh, 6px);
   border-radius: 14px;
   padding: clamp(8px, 2vh, 18px);
   display: flex;
@@ -205,7 +206,9 @@ body {
 }
 
 .result-judge {
-  margin: 0 0 clamp(3px, 1vh, 10px);
+  margin: 0 0 clamp(3px, 0.7vh, 8px);
+  padding-bottom: clamp(2px, 0.5vh, 6px);
+  border-bottom: 1px solid rgba(27, 42, 74, 0.12);
   font-size: clamp(1.05rem, 2.6vh, 1.35rem);
   line-height: 1.3;
   font-weight: bold;
@@ -237,7 +240,7 @@ body {
 
 .next-button {
   flex: 0 0 auto;
-  padding: clamp(6px, 1.4vh, 12px);
+  padding: clamp(5px, 1.4vh, 12px);
   font-size: clamp(0.85rem, 1.9vh, 1rem);
   font-weight: bold;
   color: #fff;
