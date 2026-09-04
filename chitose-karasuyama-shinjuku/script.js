@@ -4,14 +4,21 @@
   const LOOKAHEAD_MIN = 15; // 一覧に表示する範囲(現在時刻から何分以内に発車するか)
   const SKIP_SEARCH_MIN = 60; // 「見送り」比較・最速判定で後続電車を探す範囲(分)
 
+  // 画面右上に表示するバージョン。変更のたびに更新する。
+  const APP_VERSION = 'v1.3';
+  const APP_VERSION_NOTE = '次着(青)バッジを追加';
+
   const nowTimeEl = document.getElementById('now-time');
   const nowDaytypeEl = document.getElementById('now-daytype');
   const holidayNoticeEl = document.getElementById('holiday-notice');
   const listEl = document.getElementById('train-list');
   const emptyMessageEl = document.getElementById('empty-message');
   const dataUpdatedAtEl = document.getElementById('data-updated-at');
+  const appVersionEl = document.getElementById('app-version');
 
   dataUpdatedAtEl.textContent = TIMETABLE_DATA.updatedAt;
+  appVersionEl.textContent = APP_VERSION;
+  appVersionEl.title = APP_VERSION_NOTE;
 
   function getDayType(date) {
     const day = date.getDay(); // 0:日 6:土
