@@ -1,0 +1,250 @@
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+}
+
+:root {
+  --bg-top: #4aa3e0;
+  --bg-bottom: #1c5fa8;
+  --card-bg: #ffffff;
+  --text-main: #1b2a4a;
+  --text-sub: #6b7a99;
+  --border-soft: #eef1f6;
+  --notice-bg: #fff4d6;
+  --notice-text: #7a5a00;
+  --fastest-bg: #e6f9ee;
+  --fastest-border: #2fbf71;
+
+  --type-tokkyu: #e5484d;
+  --type-kyuko: #e08a1e;
+  --type-kukan_kyuko: #2f9e6f;
+  --type-kaisoku: #2a7de1;
+  --type-kakutei: #5a6472;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-top: #16283f;
+    --bg-bottom: #0b1522;
+    --card-bg: #1c2733;
+    --text-main: #eef2f8;
+    --text-sub: #9fb0c3;
+    --border-soft: #2c3948;
+    --notice-bg: #4a3a10;
+    --notice-text: #ffd88a;
+    --fastest-bg: #103324;
+    --fastest-border: #2fbf71;
+  }
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  font-family: "Hiragino Sans", "Yu Gothic", "Segoe UI", sans-serif;
+  background: linear-gradient(180deg, var(--bg-top) 0%, var(--bg-bottom) 100%);
+  color: var(--text-main);
+  display: flex;
+  justify-content: center;
+}
+
+.app {
+  width: 100%;
+  max-width: 480px;
+  padding: clamp(10px, 2vh, 20px) 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(6px, 1.4vh, 14px);
+}
+
+.app-header {
+  flex: 0 0 auto;
+  text-align: center;
+  color: #ffffff;
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: clamp(1.1rem, 2.8vh, 1.5rem);
+  letter-spacing: 0.03em;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.subtitle {
+  margin: 2px 0 0;
+  font-size: clamp(0.7rem, 1.4vh, 0.85rem);
+  opacity: 0.9;
+}
+
+.now-clock {
+  margin-top: 8px;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+}
+
+#now-time {
+  font-size: clamp(1.6rem, 5vh, 2.2rem);
+  font-weight: bold;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.25);
+}
+
+.now-daytype {
+  font-size: clamp(0.75rem, 1.6vh, 0.9rem);
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.card {
+  background: var(--card-bg);
+  border-radius: 20px;
+  padding: clamp(10px, 2vh, 18px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.notice {
+  background: var(--notice-bg);
+  color: var(--notice-text);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.train-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.train-card {
+  position: relative;
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.train-card.fastest {
+  border-color: var(--fastest-border);
+  background: var(--fastest-bg);
+}
+
+.fastest-badge {
+  position: absolute;
+  top: -10px;
+  right: 10px;
+  background: var(--fastest-border);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: bold;
+  padding: 2px 10px;
+  border-radius: 999px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.train-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.train-dep {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dep-time {
+  font-size: clamp(1.2rem, 3vh, 1.5rem);
+  font-weight: bold;
+  font-variant-numeric: tabular-nums;
+}
+
+.type-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: bold;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.type-tokkyu { background: var(--type-tokkyu); }
+.type-kyuko { background: var(--type-kyuko); }
+.type-kukan_kyuko { background: var(--type-kukan_kyuko); }
+.type-kaisoku { background: var(--type-kaisoku); }
+.type-kakutei { background: var(--type-kakutei); }
+
+.train-countdown {
+  font-size: 0.78rem;
+  color: var(--text-sub);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.train-arrival {
+  font-size: 0.85rem;
+  color: var(--text-main);
+}
+
+.train-arrival strong {
+  font-size: 1rem;
+}
+
+.duration-note {
+  color: var(--text-sub);
+  font-size: 0.78rem;
+  margin-left: 2px;
+}
+
+.dest-note {
+  margin-left: 6px;
+  font-size: 0.72rem;
+  color: var(--text-sub);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  padding: 0 5px;
+}
+
+.skip-line {
+  font-size: 0.75rem;
+  color: var(--text-sub);
+  border-top: 1px dashed var(--border-soft);
+  padding-top: 6px;
+}
+
+.empty-message {
+  text-align: center;
+  color: var(--text-sub);
+  font-size: 0.85rem;
+  padding: 20px 0;
+}
+
+.invisible {
+  display: none;
+}
+
+.app-footer {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.68rem;
+  line-height: 1.6;
+  text-align: center;
+  padding: 0 4px;
+}
+
+.app-footer p {
+  margin: 4px 0;
+}

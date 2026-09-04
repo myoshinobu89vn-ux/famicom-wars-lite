@@ -35,3 +35,7 @@ python -m http.server 8000
 ## おまけ: タイプ相性クイズ
 
 `pokemon-type-quiz/` に、ポケモンGOのタイプ相性を学べる3択クイズアプリを同梱している。詳細は [pokemon-type-quiz/README.md](pokemon-type-quiz/README.md) を参照。
+
+## おまけ: 千歳烏山→新宿 次発電車比較
+
+`chitose-karasuyama-shinjuku/` に、京王線 千歳烏山駅から新宿方面への次発電車を比較できるツールを同梱している。詳細は [chitose-karasuyama-shinjuku/README.md](chitose-karasuyama-shinjuku/README.md) を参照。
