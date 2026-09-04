@@ -39,3 +39,7 @@ python -m http.server 8000
 ## おまけ: 千歳烏山→新宿 次発電車比較
 
 `chitose-karasuyama-shinjuku/` に、京王線 千歳烏山駅から新宿方面への次発電車を比較できるツールを同梱している。詳細は [chitose-karasuyama-shinjuku/README.md](chitose-karasuyama-shinjuku/README.md) を参照。
+
+## おまけ: 新宿→千歳烏山 次発電車比較
+
+`shinjuku-chitose-karasuyama/` に、上記の逆方向(新宿駅から千歳烏山方面)の次発電車を比較できるツールを同梱している。詳細は [shinjuku-chitose-karasuyama/README.md](shinjuku-chitose-karasuyama/README.md) を参照。
