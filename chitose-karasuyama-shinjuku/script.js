@@ -5,8 +5,8 @@
   const SKIP_SEARCH_MIN = 60; // 「見送り」比較・最速判定で後続電車を探す範囲(分)
 
   // 画面右上に表示するバージョン。変更のたびに更新する。
-  const APP_VERSION = 'v1.3';
-  const APP_VERSION_NOTE = '次着(青)バッジを追加';
+  const APP_VERSION = 'v1.4';
+  const APP_VERSION_NOTE = '乗換マークを追加。ルート側Service Workerのキャッシュ干渉を修正';
 
   const nowTimeEl = document.getElementById('now-time');
   const nowDaytypeEl = document.getElementById('now-daytype');
@@ -204,6 +204,10 @@
           ? ''
           : `<span class="dest-note">${TIMETABLE_DATA.destLabel[train.dest]}行き</span>`;
 
+        const transferMark = train.transfer
+          ? '<span class="transfer-mark">⇄ 笹塚乗換</span>'
+          : '';
+
         const transferLine = train.transfer
           ? `<div class="transfer-line">笹塚 ${formatHM(train.transfer.sasazukaArrival)}頃着 → ${formatHM(train.transfer.viaSasazukaDeparture)}頃発 ${TIMETABLE_DATA.typeLabel[train.transfer.viaType]}(新宿行き・千歳烏山${formatHM(train.transfer.viaOriginDeparture)}発)に乗り換え</div>`
           : '';
@@ -223,6 +227,7 @@
                 <span class="dep-time">${formatHM(train.departure)}</span>
                 <span class="type-badge type-${train.type}">${TIMETABLE_DATA.typeLabel[train.type]}</span>
                 ${destNote}
+                ${transferMark}
               </div>
               <div class="train-countdown">${formatCountdown(train.departure - now)}</div>
             </div>

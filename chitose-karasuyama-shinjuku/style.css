@@ -19,6 +19,8 @@ html, body {
   --fastest-border: #2fbf71;
   --second-bg: #e8f1ff;
   --second-border: #2f80e0;
+  --transfer-mark-bg: #fdeecb;
+  --transfer-mark-text: #8a5a00;
 
   --type-tokkyu: #e5484d;
   --type-kyuko: #e08a1e;
@@ -41,6 +43,8 @@ html, body {
     --fastest-border: #2fbf71;
     --second-bg: #10233a;
     --second-border: #4a9bf0;
+    --transfer-mark-bg: #4a3812;
+    --transfer-mark-text: #ffcf7a;
   }
 }
 
@@ -184,14 +188,19 @@ body {
 .train-main {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 4px 8px;
 }
 
 .train-dep {
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.train-countdown {
+  margin-left: auto;
 }
 
 .dep-time {
@@ -245,6 +254,17 @@ body {
   border: 1px solid var(--border-soft);
   border-radius: 6px;
   padding: 0 5px;
+}
+
+.transfer-mark {
+  margin-left: 6px;
+  font-size: 0.7rem;
+  font-weight: bold;
+  color: var(--transfer-mark-text);
+  background: var(--transfer-mark-bg);
+  border-radius: 6px;
+  padding: 0 6px;
+  white-space: nowrap;
 }
 
 .transfer-line {
