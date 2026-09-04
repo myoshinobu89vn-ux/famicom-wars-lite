@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>千歳烏山→新宿 次発電車比較</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <header class="app-header">
+    <h1>千歳烏山→新宿</h1>
+    <p class="subtitle">次発電車比較</p>
+    <div class="now-clock">
+      <span id="now-time">--:--:--</span>
+      <span id="now-daytype" class="now-daytype">-</span>
+    </div>
+  </header>
+
+  <main class="card">
+    <div id="holiday-notice" class="notice invisible">
+      土休日ダイヤは未登録のため、参考として平日ダイヤを表示しています。実際の時刻とは異なります。
+    </div>
+
+    <section id="train-list" class="train-list" aria-live="polite"></section>
+
+    <p id="empty-message" class="empty-message invisible">
+      まもなく発車する電車がありません(15分以内に発車予定なし)。
+    </p>
+  </main>
+
+  <footer class="app-footer">
+    <p>京王線 千歳烏山駅 発車時刻表(<span id="data-updated-at"></span>・平日)をもとにした予定時刻の表示です。実際の遅延・運休等は反映されません。</p>
+    <p>急行の千歳烏山→新宿の所要時分は、区間急行と同じ停車駅パターンであることから14分と仮定しています(要確認)。</p>
+  </footer>
+</div>
+
+<script src="data.js"></script>
+<script src="script.js"></script>
+</body>
+</html>
