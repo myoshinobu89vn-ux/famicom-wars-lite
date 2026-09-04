@@ -164,21 +164,22 @@
     // 「最速」表示は、SKIP_SEARCH_MIN以内に発車する後続電車に追いつかれない
     // (＝それより早く新宿へ着く電車が存在しない)電車の中で、最も早く着くものにのみ付ける。
     // 後続に追いつかれる電車は、一覧内で到着が最速に見えても強調しない。
-    let fastestIndex = -1;
-    let fastestArrival = null;
-    for (const { train, index } of upcoming) {
+    // 「次着」は、それに次いで(異なる時刻に)早く着く、追いつかれない電車。
+    const notOvertaken = upcoming.filter(({ train, index }) => {
       const alt = findBestAlternative(trains, index);
-      const isOvertaken = !!(alt && alt.arrival < train.arrival);
-      if (isOvertaken) continue;
-      if (fastestArrival === null || train.arrival < fastestArrival) {
-        fastestIndex = index;
-        fastestArrival = train.arrival;
-      }
-    }
+      return !(alt && alt.arrival < train.arrival);
+    });
+    notOvertaken.sort((a, b) => a.train.arrival - b.train.arrival);
+
+    const fastestIndex = notOvertaken.length > 0 ? notOvertaken[0].index : -1;
+    const fastestArrival = notOvertaken.length > 0 ? notOvertaken[0].train.arrival : null;
+    const secondEntry = notOvertaken.find((item) => item.train.arrival > fastestArrival);
+    const secondIndex = secondEntry ? secondEntry.index : -1;
 
     listEl.innerHTML = upcoming
       .map(({ train, index }) => {
         const isFastest = index === fastestIndex;
+        const isSecond = index === secondIndex;
         const alt = findBestAlternative(trains, index);
 
         let skipLine;
@@ -200,9 +201,16 @@
           ? `<div class="transfer-line">笹塚 ${formatHM(train.transfer.sasazukaArrival)}頃着 → ${formatHM(train.transfer.viaSasazukaDeparture)}頃発 ${TIMETABLE_DATA.typeLabel[train.transfer.viaType]}(新宿行き・千歳烏山${formatHM(train.transfer.viaOriginDeparture)}発)に乗り換え</div>`
           : '';
 
+        const cardClass = isFastest ? ' fastest' : isSecond ? ' second-fastest' : '';
+        const badge = isFastest
+          ? '<div class="fastest-badge">最速</div>'
+          : isSecond
+            ? '<div class="second-badge">次着</div>'
+            : '';
+
         return `
-          <article class="train-card${isFastest ? ' fastest' : ''}" data-type="${train.type}">
-            ${isFastest ? '<div class="fastest-badge">最速</div>' : ''}
+          <article class="train-card${cardClass}" data-type="${train.type}">
+            ${badge}
             <div class="train-main">
               <div class="train-dep">
                 <span class="dep-time">${formatHM(train.departure)}</span>
