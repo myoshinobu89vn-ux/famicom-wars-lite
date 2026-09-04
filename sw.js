@@ -32,10 +32,15 @@ self.addEventListener("activate", (event) => {
 });
 
 // このsw.jsは "./" (リポジトリ直下)のデフォルトスコープで登録されているため、
-// 何もしないとサブディレクトリの他アプリ(pokemon-type-quiz, chitose-karasuyama-shinjuku 等)
-// へのリクエストまで横取りしてキャッシュしてしまい、それらの更新が反映されなくなる。
-// 自アプリのファイル以外は一切介入せず、ブラウザの通常のfetchに任せる。
-const OTHER_APP_PATHS = ["/pokemon-type-quiz/", "/chitose-karasuyama-shinjuku/"];
+// 何もしないとサブディレクトリの他アプリ(pokemon-type-quiz, chitose-karasuyama-shinjuku,
+// shinjuku-chitose-karasuyama 等)へのリクエストまで横取りしてキャッシュしてしまい、
+// それらの更新が反映されなくなる。自アプリのファイル以外は一切介入せず、
+// ブラウザの通常のfetchに任せる。
+const OTHER_APP_PATHS = [
+  "/pokemon-type-quiz/",
+  "/chitose-karasuyama-shinjuku/",
+  "/shinjuku-chitose-karasuyama/",
+];
 
 // ネットワーク優先: オンライン時は常に最新を取得し、キャッシュは
 // オフライン時のフォールバックとしてのみ使う(更新の反映漏れを防ぐ)。
