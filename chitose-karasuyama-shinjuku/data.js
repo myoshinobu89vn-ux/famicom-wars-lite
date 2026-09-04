@@ -2,7 +2,7 @@
 // 出典: 京王電鉄 発車標準時刻表(2026年8月17日改正)をもとにユーザーが書き起こしたデータ
 // 土休日ダイヤは未取得のため未対応(平日データのみ)
 
-// 千歳烏山→新宿(または新宿方面の起点となる新線新宿)の所要時分(分)
+// 千歳烏山→新宿の所要時分(分)。新宿行きの電車にのみ用いる。
 // 特急12分・区間急行14分は複数の乗換案内サイトで確認済み。
 // 急行はこの区間で区間急行と同じ停車駅パターン(桜上水にも停車)のため、
 // 区間急行と同じ14分と仮定している(要確認)。
@@ -13,6 +13,20 @@ const DURATION_MIN = {
   kaisoku: 20,
   kakutei: 20,
 };
+
+// 笹塚→新宿は途中駅がない一区間のノンストップ区間のため、種別によらず
+// 一律 4分と仮定している(要確認)。
+const SASAZUKA_TO_SHINJUKU_MIN = 4;
+
+// 千歳烏山→笹塚の所要時分(分) = 千歳烏山→新宿の所要時分 - 笹塚→新宿(4分)としている(推定・要確認)。
+// 本八幡・大島行きなど新宿へ直通しない電車の「笹塚乗り換え」到着予定計算に用いる。
+const DURATION_TO_SASAZUKA_MIN = Object.fromEntries(
+  Object.entries(DURATION_MIN).map(([type, min]) => [type, min - SASAZUKA_TO_SHINJUKU_MIN])
+);
+
+// 笹塚での乗り換えに要する最低時間(分)。京王線と京王新線はホームが別のため、
+// 同時刻着でも乗り換えは不可能という前提でバッファを設けている(仮定・要確認)。
+const SASAZUKA_TRANSFER_BUFFER_MIN = 2;
 
 const TYPE_LABEL = {
   tokkyu: '特急',
@@ -365,6 +379,9 @@ WEEKDAY_RAW.push(
 const TIMETABLE_DATA = {
   updatedAt: '2026年8月17日改正(ユーザー提供の平日下り時刻表をもとに書き起こし)',
   durationMin: DURATION_MIN,
+  durationToSasazukaMin: DURATION_TO_SASAZUKA_MIN,
+  sasazukaToShinjukuMin: SASAZUKA_TO_SHINJUKU_MIN,
+  sasazukaTransferBufferMin: SASAZUKA_TRANSFER_BUFFER_MIN,
   typeLabel: TYPE_LABEL,
   typeRank: TYPE_RANK,
   destLabel: DEST_LABEL,

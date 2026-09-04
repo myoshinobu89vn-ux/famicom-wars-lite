@@ -219,6 +219,14 @@ body {
   padding: 0 5px;
 }
 
+.transfer-line {
+  font-size: 0.75rem;
+  color: var(--text-sub);
+  background: rgba(127, 127, 127, 0.08);
+  border-radius: 8px;
+  padding: 4px 8px;
+}
+
 .skip-line {
   font-size: 0.75rem;
   color: var(--text-sub);
