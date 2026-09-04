@@ -55,12 +55,23 @@ body {
 }
 
 .app {
+  position: relative;
   width: 100%;
   max-width: 480px;
   padding: clamp(10px, 2vh, 20px) 16px 24px;
   display: flex;
   flex-direction: column;
   gap: clamp(6px, 1.4vh, 14px);
+}
+
+.version-badge {
+  position: absolute;
+  top: 6px;
+  right: 12px;
+  font-size: 0.65rem;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.75);
+  cursor: default;
 }
 
 .app-header {
