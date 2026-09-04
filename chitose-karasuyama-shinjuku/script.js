@@ -2,7 +2,7 @@
   'use strict';
 
   const LOOKAHEAD_MIN = 15; // 一覧に表示する範囲(現在時刻から何分以内に発車するか)
-  const SKIP_SEARCH_MIN = 60; // 「見送り」比較で後続電車を探す範囲(分)
+  const SKIP_SEARCH_MIN = 60; // 「見送り」比較・最速判定で後続電車を探す範囲(分)
 
   const nowTimeEl = document.getElementById('now-time');
   const nowDaytypeEl = document.getElementById('now-daytype');
@@ -36,24 +36,75 @@
     return candidate;
   }
 
-  function buildUpcomingTrains(now) {
-    const dayType = getDayType(now);
-    const { rows, isFallback } = getActiveDataset(dayType);
-
-    const trains = rows
+  // 千歳烏山発の全電車を、笹塚到着予定時刻つきで組み立てる。
+  // 新宿行き以外(本八幡・大島・新線新宿行き)は新宿へ直通しないため、
+  // 笹塚での乗り換えを前提に新宿到着予定を別途計算する。
+  function buildRawTrains(now, rows) {
+    return rows
       .filter(([, , dest]) => !TIMETABLE_DATA.notReachingShinjuku.has(dest))
       .map(([time, type, dest]) => {
         const [hh, mm] = time.split(':').map(Number);
         const departure = nextOccurrence(now, hh, mm);
-        const durationMin = TIMETABLE_DATA.durationMin[type];
-        const arrival = new Date(departure.getTime() + durationMin * 60000);
-        return { time, type, dest, departure, arrival, durationMin };
+        const sasazukaArrival = new Date(
+          departure.getTime() + TIMETABLE_DATA.durationToSasazukaMin[type] * 60000
+        );
+        return { time, type, dest, departure, sasazukaArrival };
       })
+      .sort((a, b) => a.departure - b.departure);
+  }
+
+  function resolveShinjukuArrival(train, shinjukuBoundTrains) {
+    if (train.dest === 'shinjuku') {
+      return {
+        arrival: new Date(train.departure.getTime() + TIMETABLE_DATA.durationMin[train.type] * 60000),
+        transfer: null,
+      };
+    }
+
+    // 笹塚で、自分の笹塚到着より一定時間(乗換バッファ)以上あとに笹塚へ到着する
+    // 新宿行き電車の中で、最も早く笹塚に着くものへ乗り換えると仮定する。
+    const threshold = train.sasazukaArrival.getTime() + TIMETABLE_DATA.sasazukaTransferBufferMin * 60000;
+    const connection = shinjukuBoundTrains.find((t) => t.sasazukaArrival.getTime() >= threshold);
+
+    if (!connection) {
+      return { arrival: null, transfer: null };
+    }
+
+    const arrival = new Date(
+      connection.sasazukaArrival.getTime() + TIMETABLE_DATA.sasazukaToShinjukuMin * 60000
+    );
+    return {
+      arrival,
+      transfer: {
+        sasazukaArrival: train.sasazukaArrival,
+        viaType: connection.type,
+        viaSasazukaDeparture: connection.sasazukaArrival,
+        viaOriginDeparture: connection.departure,
+      },
+    };
+  }
+
+  function buildUpcomingTrains(now) {
+    const dayType = getDayType(now);
+    const { rows, isFallback } = getActiveDataset(dayType);
+
+    const rawTrains = buildRawTrains(now, rows);
+    const shinjukuBoundTrains = rawTrains
+      .filter((t) => t.dest === 'shinjuku')
+      .sort((a, b) => a.sasazukaArrival - b.sasazukaArrival);
+
+    const trains = rawTrains
+      .map((train) => {
+        const { arrival, transfer } = resolveShinjukuArrival(train, shinjukuBoundTrains);
+        return { ...train, arrival, transfer };
+      })
+      .filter((train) => train.arrival !== null)
       .sort((a, b) => a.departure - b.departure);
 
     return { trains, dayType, isFallback };
   }
 
+  // currentIndex以降(SKIP_SEARCH_MIN以内に発車)で、最も早く新宿へ着く電車を探す。
   function findBestAlternative(trains, currentIndex) {
     const current = trains[currentIndex];
     const limit = new Date(current.departure.getTime() + SKIP_SEARCH_MIN * 60000);
@@ -88,14 +139,6 @@
     return `あと${min}分${String(sec).padStart(2, '0')}秒`;
   }
 
-  function destArrivalLabel(dest) {
-    if (dest === 'shinjuku') return '新宿';
-    if (dest === 'shinsen_shinjuku') return '新線新宿';
-    // 本八幡・大島方面の電車は新線新宿経由で都営新宿線へ直通するため、
-    // 新宿方面への到着目安として新線新宿の到着予定を表示する
-    return '新線新宿';
-  }
-
   function render() {
     const now = new Date();
     nowTimeEl.textContent = formatClock(now);
@@ -118,30 +161,44 @@
     }
     emptyMessageEl.classList.add('invisible');
 
-    const fastestArrival = upcoming.reduce(
-      (min, item) => (item.train.arrival < min ? item.train.arrival : min),
-      upcoming[0].train.arrival
-    );
+    // 「最速」表示は、SKIP_SEARCH_MIN以内に発車する後続電車に追いつかれない
+    // (＝それより早く新宿へ着く電車が存在しない)電車の中で、最も早く着くものにのみ付ける。
+    // 後続に追いつかれる電車は、一覧内で到着が最速に見えても強調しない。
+    let fastestIndex = -1;
+    let fastestArrival = null;
+    for (const { train, index } of upcoming) {
+      const alt = findBestAlternative(trains, index);
+      const isOvertaken = !!(alt && alt.arrival < train.arrival);
+      if (isOvertaken) continue;
+      if (fastestArrival === null || train.arrival < fastestArrival) {
+        fastestIndex = index;
+        fastestArrival = train.arrival;
+      }
+    }
 
     listEl.innerHTML = upcoming
       .map(({ train, index }) => {
-        const isFastest = train.arrival.getTime() === fastestArrival.getTime();
+        const isFastest = index === fastestIndex;
         const alt = findBestAlternative(trains, index);
 
         let skipLine;
         if (alt && alt.arrival < train.arrival) {
           const diffMin = Math.round((train.arrival - alt.arrival) / 60000);
-          skipLine = `見送って ${formatHM(alt.departure)}発 ${TIMETABLE_DATA.typeLabel[alt.type]} に乗ると ${destArrivalLabel(alt.dest)} ${formatHM(alt.arrival)}着(${diffMin}分早い)`;
+          skipLine = `見送って ${formatHM(alt.departure)}発 ${TIMETABLE_DATA.typeLabel[alt.type]} に乗ると新宿 ${formatHM(alt.arrival)}着(${diffMin}分早い)`;
         } else if (alt) {
           const diffMin = Math.round((alt.arrival - train.arrival) / 60000);
-          skipLine = `見送ると ${formatHM(alt.departure)}発 ${TIMETABLE_DATA.typeLabel[alt.type]} で ${destArrivalLabel(alt.dest)} ${formatHM(alt.arrival)}着(${diffMin}分遅くなります)`;
+          skipLine = `見送ると ${formatHM(alt.departure)}発 ${TIMETABLE_DATA.typeLabel[alt.type]} で新宿 ${formatHM(alt.arrival)}着(${diffMin}分遅くなります)`;
         } else {
           skipLine = 'この時間帯では見送り後の比較対象がありません';
         }
 
-        const destNote = train.dest === 'shinjuku' || train.dest === 'shinsen_shinjuku'
+        const destNote = train.dest === 'shinjuku'
           ? ''
-          : `<span class="dest-note">${TIMETABLE_DATA.destLabel[train.dest]}方面</span>`;
+          : `<span class="dest-note">${TIMETABLE_DATA.destLabel[train.dest]}行き</span>`;
+
+        const transferLine = train.transfer
+          ? `<div class="transfer-line">笹塚 ${formatHM(train.transfer.sasazukaArrival)}頃着 → ${formatHM(train.transfer.viaSasazukaDeparture)}頃発 ${TIMETABLE_DATA.typeLabel[train.transfer.viaType]}(新宿行き・千歳烏山${formatHM(train.transfer.viaOriginDeparture)}発)に乗り換え</div>`
+          : '';
 
         return `
           <article class="train-card${isFastest ? ' fastest' : ''}" data-type="${train.type}">
@@ -150,14 +207,15 @@
               <div class="train-dep">
                 <span class="dep-time">${formatHM(train.departure)}</span>
                 <span class="type-badge type-${train.type}">${TIMETABLE_DATA.typeLabel[train.type]}</span>
+                ${destNote}
               </div>
               <div class="train-countdown">${formatCountdown(train.departure - now)}</div>
             </div>
             <div class="train-arrival">
-              ${destArrivalLabel(train.dest)}着予定 <strong>${formatHM(train.arrival)}</strong>
-              <span class="duration-note">(所要${train.durationMin}分)</span>
-              ${destNote}
+              新宿着予定 <strong>${formatHM(train.arrival)}</strong>
+              <span class="duration-note">(所要${Math.round((train.arrival - train.departure) / 60000)}分)</span>
             </div>
+            ${transferLine}
             <div class="skip-line">${skipLine}</div>
           </article>
         `;
