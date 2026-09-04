@@ -17,6 +17,8 @@ html, body {
   --notice-text: #7a5a00;
   --fastest-bg: #e6f9ee;
   --fastest-border: #2fbf71;
+  --second-bg: #e8f1ff;
+  --second-border: #2f80e0;
 
   --type-tokkyu: #e5484d;
   --type-kyuko: #e08a1e;
@@ -37,6 +39,8 @@ html, body {
     --notice-text: #ffd88a;
     --fastest-bg: #103324;
     --fastest-border: #2fbf71;
+    --second-bg: #10233a;
+    --second-border: #4a9bf0;
   }
 }
 
@@ -140,17 +144,30 @@ body {
   background: var(--fastest-bg);
 }
 
-.fastest-badge {
+.train-card.second-fastest {
+  border-color: var(--second-border);
+  background: var(--second-bg);
+}
+
+.fastest-badge,
+.second-badge {
   position: absolute;
   top: -10px;
   right: 10px;
-  background: var(--fastest-border);
   color: #fff;
   font-size: 0.7rem;
   font-weight: bold;
   padding: 2px 10px;
   border-radius: 999px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.fastest-badge {
+  background: var(--fastest-border);
+}
+
+.second-badge {
+  background: var(--second-border);
 }
 
 .train-main {
