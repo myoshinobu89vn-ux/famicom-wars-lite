@@ -7,8 +7,8 @@ const STORAGE_KEY_EXCLUDED_SITES = 'kondate_excluded_sites_v1';
 const GENRES = ['和', '洋', '中', '他'];
 const TIME_OPTIONS = [10, 20, 30, 45];
 const SERVINGS_OPTIONS = [1, 2, 3, 4, 5, 6];
-const APP_VERSION = 'v1.7';
-const APP_VERSION_NOTE = '外部サイト検索のクエリに主要食材キーワードを追加し、ヒットしやすくした';
+const APP_VERSION = 'v2.0';
+const APP_VERSION_NOTE = '日本の郷土料理40品・海外の国民料理60品を追加し、料理データを200品に拡充（魚介類カテゴリ・世界の調味料も追加）';
 
 // レシピ検索先サイト（除外されていないものだけ検索対象にする）
 const RECIPE_SITES = [

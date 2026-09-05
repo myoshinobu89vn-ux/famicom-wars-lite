@@ -19,10 +19,10 @@
 ## データ構成
 
 - `data.js`
-  - `INGREDIENT_CATEGORIES` : 保有食材のカテゴリ定義（肉類・卵豆腐・野菜・乾物缶詰・乳製品）
-  - `SEASONING_TABS` : 調味料タブ定義（和・洋・中・その他）
+  - `INGREDIENT_CATEGORIES` : 保有食材のカテゴリ定義（肉類・卵豆腐・魚介類・野菜・乾物缶詰・乳製品）
+  - `SEASONING_TABS` : 調味料タブ定義（和・洋・中・その他）。その他タブにはコチュジャン・ナンプラー・カレー粉・クミン・パプリカパウダーなど世界各国の調味料も含む
   - `INGREDIENT_SERVING_INFO` : 食材ごとの1人前あたりの目安量（分量・単位）。人数調整時の分量換算に使う。塩・こしょうなど人数によらず一定の食材は `fixed`（「少々」など）で表現する
-  - `DISHES` : 主菜100品（和30／中30／洋30／他10）のデータ。各料理は `name` / `genre` / `time` / `description`（料理の特徴を紹介する一言説明）/ `need`（必要食材キーの配列）/ `steps`（作り方の手順配列）/ `tips`（プロのコツの配列）を持つ
+  - `DISHES` : 主菜200品（和食・洋食・中華・他の定番100品 ＋ 日本の郷土料理40品・海外の国民料理60品）のデータ。各料理は `name` / `genre` / `time` / `description`（料理の特徴を紹介する一言説明）/ `need`（必要食材キーの配列）/ `steps`（作り方の手順配列）/ `tips`（プロのコツの配列）を持つ
 - `script.js`
   - `RECIPE_SITES` : レシピ検索先サイトの定義（サイト名・検索URLテンプレート）。クックパッド／クラシル／DELISH KITCHEN／YouTube／Google／Bingに対応
 - 保有食材・履歴・レシピメモ・除外したレシピサイトは `localStorage` に保存される（`kondate_ingredients_v1` / `kondate_history_v1` / `kondate_memos_v1` / `kondate_excluded_sites_v1`）
