@@ -336,9 +336,26 @@ body {
 }
 
 .recipe-ingredient-list li,
-.recipe-steps-list li {
+.recipe-steps-list li,
+.recipe-tips-list li {
   margin-bottom: 4px;
   line-height: 1.5;
+}
+
+.recipe-tips-list {
+  margin: 0;
+  padding-left: 0;
+  font-size: 0.85rem;
+  list-style: none;
+}
+
+.recipe-tips-list li {
+  padding: 6px 10px;
+  margin-bottom: 6px;
+  background: #fff6ea;
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  color: var(--text-main);
 }
 
 .recipe-memo-input {
@@ -400,6 +417,13 @@ body {
   margin: 0;
   font-size: 0.75rem;
   color: var(--text-sub);
+}
+
+.dish-description {
+  margin: 2px 0 0;
+  font-size: 0.85rem;
+  color: var(--text-main);
+  line-height: 1.4;
 }
 
 .missing-line {

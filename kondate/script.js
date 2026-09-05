@@ -341,6 +341,11 @@ function renderCandidateList(candidates) {
     meta.textContent = `${dish.genre} / ${dish.time}分`;
     card.appendChild(meta);
 
+    const description = document.createElement('p');
+    description.className = 'dish-description';
+    description.textContent = dish.description;
+    card.appendChild(description);
+
     if (!available) {
       const missingLine = document.createElement('p');
       missingLine.className = 'missing-line';
@@ -389,6 +394,20 @@ function renderCandidateList(candidates) {
         stepsList.appendChild(li);
       });
       recipePanel.appendChild(stepsList);
+
+      const tipsTitle = document.createElement('p');
+      tipsTitle.className = 'recipe-subtitle';
+      tipsTitle.textContent = '💡 プロのコツ';
+      recipePanel.appendChild(tipsTitle);
+
+      const tipsList = document.createElement('ul');
+      tipsList.className = 'recipe-tips-list';
+      dish.tips.forEach((tip) => {
+        const li = document.createElement('li');
+        li.textContent = tip;
+        tipsList.appendChild(li);
+      });
+      recipePanel.appendChild(tipsList);
 
       const memoTitle = document.createElement('p');
       memoTitle.className = 'recipe-subtitle';
