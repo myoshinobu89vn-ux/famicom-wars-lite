@@ -4,11 +4,12 @@ const STORAGE_KEY_INGREDIENTS = 'kondate_ingredients_v1';
 const STORAGE_KEY_HISTORY = 'kondate_history_v1';
 const STORAGE_KEY_MEMOS = 'kondate_memos_v1';
 const STORAGE_KEY_EXCLUDED_SITES = 'kondate_excluded_sites_v1';
+const STORAGE_KEY_PREFERRED_SITE = 'kondate_preferred_site_v1';
 const GENRES = ['和', '洋', '中', '他'];
 const TIME_OPTIONS = [10, 20, 30, 45];
 const SERVINGS_OPTIONS = [1, 2, 3, 4, 5, 6];
-const APP_VERSION = 'v2.1';
-const APP_VERSION_NOTE = 'キーワード検索を追加（料理名・特徴の説明文・主要食材から絞り込み可能）';
+const APP_VERSION = 'v2.2';
+const APP_VERSION_NOTE = 'レシピサイトの検索方法をプルダウン選択+GOボタン方式に変更しわかりやすくした';
 
 // レシピ検索先サイト（除外されていないものだけ検索対象にする）
 const RECIPE_SITES = [
@@ -89,6 +90,18 @@ function saveExcludedSites(excludedSet) {
   localStorage.setItem(STORAGE_KEY_EXCLUDED_SITES, JSON.stringify([...excludedSet]));
 }
 
+function loadPreferredSite() {
+  try {
+    return localStorage.getItem(STORAGE_KEY_PREFERRED_SITE) || '';
+  } catch (e) {
+    return '';
+  }
+}
+
+function savePreferredSite(siteKey) {
+  localStorage.setItem(STORAGE_KEY_PREFERRED_SITE, siteKey);
+}
+
 // ----- アプリ状態 -----
 
 const state = {
@@ -102,6 +115,8 @@ const state = {
 
 // レシピ検索から除外中のサイト（キーの集合）
 let excludedSites = loadExcludedSites();
+// 各レシピの検索サイト選択で最後に選んだサイト（初期値の候補として使う）
+let preferredSiteKey = loadPreferredSite();
 
 // 直近に計算した候補一覧（ランダム並べ替え用に保持）
 let lastCandidates = [];
@@ -222,17 +237,19 @@ function renderSiteOptions() {
 
 // ----- レシピ外部検索 -----
 
-function openRecipeSearch(dish) {
-  const sites = RECIPE_SITES.filter((site) => !excludedSites.has(site.key));
-  if (sites.length === 0) {
-    showToast('検索サイトを1つ以上選択してください');
+function getAvailableSites() {
+  return RECIPE_SITES.filter((site) => !excludedSites.has(site.key));
+}
+
+function openRecipeSearchOnSite(dish, siteKey) {
+  const site = RECIPE_SITES.find((s) => s.key === siteKey);
+  if (!site) {
+    showToast('検索サイトを選択してください');
     return;
   }
   const keywords = [dish.name, ...getMainIngredientLabels(dish, 2), 'レシピ'];
   const encodedQuery = encodeURIComponent(keywords.join(' '));
-  sites.forEach((site) => {
-    window.open(site.urlTemplate.replace('{query}', encodedQuery), '_blank');
-  });
+  window.open(site.urlTemplate.replace('{query}', encodedQuery), '_blank');
 }
 
 // ----- 保有食材ページ -----
@@ -466,12 +483,41 @@ function renderCandidateList(candidates) {
     function renderRecipePanelContent() {
       recipePanel.innerHTML = '';
 
-      const searchButton = document.createElement('button');
-      searchButton.type = 'button';
-      searchButton.className = 'search-sites-button';
-      searchButton.textContent = '🔍 レシピサイトで検索';
-      searchButton.addEventListener('click', () => openRecipeSearch(dish));
-      recipePanel.appendChild(searchButton);
+      const searchRow = document.createElement('div');
+      searchRow.className = 'search-sites-row';
+
+      const availableSites = getAvailableSites();
+      if (availableSites.length === 0) {
+        const notice = document.createElement('p');
+        notice.className = 'search-sites-notice';
+        notice.textContent = 'トップ画面の「レシピ検索サイト」で検索先を1つ以上選んでください';
+        recipePanel.appendChild(notice);
+      } else {
+        const siteSelect = document.createElement('select');
+        siteSelect.className = 'site-select';
+        availableSites.forEach((site) => {
+          const option = document.createElement('option');
+          option.value = site.key;
+          option.textContent = site.label;
+          siteSelect.appendChild(option);
+        });
+        const initialKey = availableSites.some((s) => s.key === preferredSiteKey) ? preferredSiteKey : availableSites[0].key;
+        siteSelect.value = initialKey;
+        siteSelect.addEventListener('change', () => {
+          preferredSiteKey = siteSelect.value;
+          savePreferredSite(preferredSiteKey);
+        });
+
+        const goButton = document.createElement('button');
+        goButton.type = 'button';
+        goButton.className = 'search-go-button';
+        goButton.textContent = 'GO';
+        goButton.addEventListener('click', () => openRecipeSearchOnSite(dish, siteSelect.value));
+
+        searchRow.appendChild(siteSelect);
+        searchRow.appendChild(goButton);
+        recipePanel.appendChild(searchRow);
+      }
 
       const ingredientTitle = document.createElement('p');
       ingredientTitle.className = 'recipe-subtitle';

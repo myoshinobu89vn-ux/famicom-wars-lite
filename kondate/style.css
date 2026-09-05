@@ -342,22 +342,47 @@ body {
   transform: scale(0.98);
 }
 
-.search-sites-button {
-  display: block;
-  width: 100%;
+.search-sites-row {
+  display: flex;
+  gap: 8px;
   margin-bottom: 10px;
-  padding: 12px;
+}
+
+.site-select {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 10px 8px;
+  border: 1px solid #ecdfcd;
+  border-radius: 10px;
+  background: #fffaf3;
+  color: var(--text-main);
+  font-size: 0.85rem;
+  font-family: inherit;
+}
+
+.search-go-button {
+  flex: 0 0 auto;
+  padding: 10px 22px;
   font-size: 0.9rem;
   font-weight: bold;
   border: none;
-  border-radius: 14px;
+  border-radius: 10px;
   cursor: pointer;
   background: var(--accent);
   color: #fff;
 }
 
-.search-sites-button:active {
-  transform: scale(0.98);
+.search-go-button:active {
+  transform: scale(0.96);
+}
+
+.search-sites-notice {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fff1e4;
+  color: var(--need-color);
+  font-size: 0.8rem;
 }
 
 .recipe-panel {
