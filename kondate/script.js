@@ -7,8 +7,8 @@ const STORAGE_KEY_EXCLUDED_SITES = 'kondate_excluded_sites_v1';
 const GENRES = ['和', '洋', '中', '他'];
 const TIME_OPTIONS = [10, 20, 30, 45];
 const SERVINGS_OPTIONS = [1, 2, 3, 4, 5, 6];
-const APP_VERSION = 'v1.5';
-const APP_VERSION_NOTE = 'レシピを外部サイトで検索するボタンを追加（検索先サイトは選択可）';
+const APP_VERSION = 'v1.6';
+const APP_VERSION_NOTE = '「簡易レシピ」表記に変更、献立を決めるボタンの配色を変更、調達不要のみ表示トグルを追加';
 
 // レシピ検索先サイト（除外されていないものだけ検索対象にする）
 const RECIPE_SITES = [
@@ -96,6 +96,7 @@ const state = {
   selectedTime: 30,
   timePriority: false,
   servings: 2,
+  onlyAvailable: false,
 };
 
 // レシピ検索から除外中のサイト（キーの集合）
@@ -162,6 +163,13 @@ function renderTimeOptions() {
 
 document.getElementById('time-priority-toggle').addEventListener('change', (e) => {
   state.timePriority = e.target.checked;
+});
+
+document.getElementById('only-available-toggle').addEventListener('change', (e) => {
+  state.onlyAvailable = e.target.checked;
+  if (!screens.result.classList.contains('hidden')) {
+    renderResultScreen();
+  }
 });
 
 function renderServingsOptions() {
@@ -309,6 +317,7 @@ function computeCandidates() {
       const missing = dish.need.filter((key) => !ingredients[key]);
       return { dish, missing, available: missing.length === 0 };
     })
+    .filter((item) => !state.onlyAvailable || item.available)
     .sort((a, b) => {
       if (a.available !== b.available) return a.available ? -1 : 1;
       if (a.dish.time !== b.dish.time) return a.dish.time - b.dish.time;
@@ -498,7 +507,7 @@ function renderCandidateList(candidates) {
 
     function setRecipeOpen(open) {
       recipePanel.classList.toggle('hidden', !open);
-      recipeButton.textContent = open ? 'レシピを閉じる' : 'レシピを見る';
+      recipeButton.textContent = open ? '簡易レシピを閉じる' : '簡易レシピを見る';
       if (open) {
         openRecipeNames.add(dish.name);
         renderRecipePanelContent();
