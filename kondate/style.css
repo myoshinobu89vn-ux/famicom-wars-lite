@@ -32,6 +32,7 @@ body {
 }
 
 .app {
+  position: relative;
   width: 100%;
   max-width: 480px;
   min-height: 100dvh;
@@ -39,6 +40,16 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.version-badge {
+  position: absolute;
+  top: 6px;
+  right: 12px;
+  font-size: 0.65rem;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.75);
+  cursor: default;
 }
 
 .app-header {
@@ -436,6 +447,12 @@ body {
   margin-top: 4px;
   background: #f5f0ea;
   color: var(--text-main);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.cooked-button.cooked-active {
+  background: var(--available-color);
+  color: #fff;
 }
 
 .empty-message {

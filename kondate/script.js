@@ -6,7 +6,8 @@ const STORAGE_KEY_MEMOS = 'kondate_memos_v1';
 const GENRES = ['和', '洋', '中', '他'];
 const TIME_OPTIONS = [10, 20, 30, 45];
 const SERVINGS_OPTIONS = [1, 2, 3, 4, 5, 6];
-const RECENT_EXCLUDE_COUNT = 5;
+const APP_VERSION = 'v1.4';
+const APP_VERSION_NOTE = '右上にバージョン表示を追加。「作ったよ」をトグル式にし、記録しても候補から除外しないよう変更';
 
 // ----- 永続化 -----
 
@@ -40,6 +41,13 @@ function addHistoryEntry(name) {
   localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(history));
 }
 
+function removeMostRecentHistoryEntry(name) {
+  const history = loadHistory();
+  const index = history.findIndex((entry) => entry.name === name);
+  if (index !== -1) history.splice(index, 1);
+  localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(history));
+}
+
 function loadMemos() {
   try {
     return JSON.parse(localStorage.getItem(STORAGE_KEY_MEMOS)) || {};
@@ -58,16 +66,6 @@ function saveMemo(name, text) {
   localStorage.setItem(STORAGE_KEY_MEMOS, JSON.stringify(memos));
 }
 
-function getRecentDishNames() {
-  const history = loadHistory();
-  const names = [];
-  for (const entry of history) {
-    if (!names.includes(entry.name)) names.push(entry.name);
-    if (names.length >= RECENT_EXCLUDE_COUNT) break;
-  }
-  return names;
-}
-
 // ----- アプリ状態 -----
 
 const state = {
@@ -81,6 +79,8 @@ const state = {
 let lastCandidates = [];
 // 開いているレシピ（作り方）の料理名一覧
 const openRecipeNames = new Set();
+// 「作ったよ」で記録済みとしてマークされている料理名一覧（このセッション内の見た目の状態）
+const cookedNames = new Set();
 
 // ----- 画面切り替え -----
 
@@ -240,12 +240,10 @@ function renderSeasoningPanel() {
 
 function computeCandidates() {
   const ingredients = loadIngredients();
-  const recentNames = getRecentDishNames();
 
   return DISHES
     .filter((dish) => state.selectedGenres.has(dish.genre))
     .filter((dish) => (state.timePriority ? dish.time === state.selectedTime : dish.time <= state.selectedTime))
-    .filter((dish) => !recentNames.includes(dish.name))
     .map((dish) => {
       const missing = dish.need.filter((key) => !ingredients[key]);
       return { dish, missing, available: missing.length === 0 };
@@ -450,11 +448,26 @@ function renderCandidateList(candidates) {
     const cookedButton = document.createElement('button');
     cookedButton.type = 'button';
     cookedButton.className = 'cooked-button';
-    cookedButton.textContent = '作ったよ';
+
+    function setCookedState(cooked) {
+      cookedButton.classList.toggle('cooked-active', cooked);
+      cookedButton.textContent = cooked ? '✓ 作ったよ' : '作ったよ';
+    }
+
+    setCookedState(cookedNames.has(dish.name));
+
     cookedButton.addEventListener('click', () => {
-      addHistoryEntry(dish.name);
-      showToast(`「${dish.name}」を記録しました！`);
-      renderResultScreen();
+      if (cookedNames.has(dish.name)) {
+        cookedNames.delete(dish.name);
+        removeMostRecentHistoryEntry(dish.name);
+        setCookedState(false);
+        showToast(`「${dish.name}」の記録を取り消しました`);
+      } else {
+        cookedNames.add(dish.name);
+        addHistoryEntry(dish.name);
+        setCookedState(true);
+        showToast(`「${dish.name}」を記録しました！`);
+      }
     });
 
     buttonRow.appendChild(recipeButton);
@@ -509,6 +522,10 @@ document.getElementById('shuffle-button').addEventListener('click', () => {
 });
 
 // ----- 初期化 -----
+
+const appVersionEl = document.getElementById('app-version');
+appVersionEl.textContent = APP_VERSION;
+appVersionEl.title = APP_VERSION_NOTE;
 
 renderGenreOptions();
 renderTimeOptions();
