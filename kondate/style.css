@@ -35,36 +35,36 @@ body {
   width: 100%;
   max-width: 480px;
   min-height: 100dvh;
-  padding: 16px 16px 32px;
+  padding: 10px 14px 20px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
 }
 
 .app-header {
   flex: 0 0 auto;
   text-align: center;
   color: #ffffff;
-  padding-top: 6px;
+  padding-top: 2px;
 }
 
 .app-header h1 {
   margin: 0;
-  font-size: 1.3rem;
+  font-size: 1.1rem;
   letter-spacing: 0.02em;
   text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
 .subtitle {
-  margin: 4px 0 0;
-  font-size: 0.75rem;
+  margin: 2px 0 0;
+  font-size: 0.7rem;
   opacity: 0.9;
 }
 
 .screen {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
 }
 
 .screen.hidden {
@@ -73,14 +73,28 @@ body {
 
 .card {
   background: var(--card-bg);
-  border-radius: 18px;
-  padding: 14px 16px;
+  border-radius: 16px;
+  padding: 10px 14px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
 }
 
+.selection-card {
+  padding: 10px 14px 4px;
+}
+
+.selection-group {
+  padding-bottom: 10px;
+}
+
+.selection-group + .selection-group {
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid #f3e9dd;
+}
+
 .section-title {
-  margin: 0 0 10px;
-  font-size: 0.95rem;
+  margin: 0 0 6px;
+  font-size: 0.85rem;
   font-weight: bold;
   color: var(--text-main);
 }
@@ -88,17 +102,17 @@ body {
 .chip-group {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 12px;
+  gap: 6px;
+  margin-bottom: 6px;
 }
 
 .chip {
-  padding: 8px 16px;
+  padding: 6px 12px;
   border: none;
   border-radius: 999px;
   background: var(--chip-bg);
   color: var(--text-main);
-  font-size: 0.9rem;
+  font-size: 0.8rem;
   font-weight: 600;
   cursor: pointer;
 }
@@ -113,7 +127,8 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  font-size: 0.8rem;
+  margin-top: 4px;
+  font-size: 0.75rem;
   color: var(--text-sub);
   cursor: pointer;
 }
@@ -157,14 +172,23 @@ body {
 .button-col {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
+}
+
+.result-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.result-actions .secondary-button {
+  flex: 1 1 0;
 }
 
 .primary-button,
 .secondary-button,
 .cooked-button {
-  padding: 14px;
-  font-size: 1rem;
+  padding: 12px;
+  font-size: 0.95rem;
   font-weight: bold;
   border: none;
   border-radius: 14px;
@@ -268,8 +292,8 @@ body {
 }
 
 .recipe-toggle-button {
-  padding: 14px;
-  font-size: 1rem;
+  padding: 12px;
+  font-size: 0.95rem;
   font-weight: bold;
   border: none;
   border-radius: 14px;
@@ -315,6 +339,31 @@ body {
 .recipe-steps-list li {
   margin-bottom: 4px;
   line-height: 1.5;
+}
+
+.recipe-memo-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 56px;
+  padding: 8px 10px;
+  border: 1px solid #ecdfcd;
+  border-radius: 10px;
+  background: #fffaf3;
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.recipe-memo-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.recipe-memo-input::placeholder {
+  color: var(--text-sub);
 }
 
 .dish-header {

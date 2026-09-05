@@ -15,24 +15,26 @@
 
   <!-- ===== トップ画面 ===== -->
   <main id="screen-top" class="screen">
-    <section class="card">
-      <h2 class="section-title">ジャンル</h2>
-      <div id="genre-options" class="chip-group"></div>
-    </section>
+    <section class="card selection-card">
+      <div class="selection-group">
+        <h2 class="section-title">ジャンル</h2>
+        <div id="genre-options" class="chip-group"></div>
+      </div>
 
-    <section class="card">
-      <h2 class="section-title">調理時間</h2>
-      <div id="time-options" class="chip-group"></div>
-      <label class="toggle-row">
-        <span>時間優先（選んだ時間ぴったりの料理だけ表示）</span>
-        <input type="checkbox" id="time-priority-toggle">
-        <span class="toggle-switch" aria-hidden="true"></span>
-      </label>
-    </section>
+      <div class="selection-group">
+        <h2 class="section-title">調理時間</h2>
+        <div id="time-options" class="chip-group"></div>
+        <label class="toggle-row">
+          <span>時間優先（ぴったりの時間だけ表示）</span>
+          <input type="checkbox" id="time-priority-toggle">
+          <span class="toggle-switch" aria-hidden="true"></span>
+        </label>
+      </div>
 
-    <section class="card">
-      <h2 class="section-title">人数</h2>
-      <div id="servings-options" class="chip-group"></div>
+      <div class="selection-group">
+        <h2 class="section-title">人数</h2>
+        <div id="servings-options" class="chip-group"></div>
+      </div>
     </section>
 
     <div class="button-col">
@@ -59,8 +61,9 @@
   <!-- ===== 献立候補一覧 ===== -->
   <main id="screen-result" class="screen hidden">
     <div id="result-summary" class="result-summary"></div>
-    <div class="button-col">
-      <button id="shuffle-button" class="secondary-button">🔀 ランダムに並べ替え</button>
+    <div class="result-actions">
+      <button id="back-from-result-top" class="secondary-button">条件を変える</button>
+      <button id="shuffle-button" class="secondary-button">🔀 ランダム</button>
     </div>
     <div id="result-list"></div>
     <div class="button-col">
