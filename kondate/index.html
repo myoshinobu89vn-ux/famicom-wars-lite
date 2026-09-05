@@ -30,6 +30,11 @@
       </label>
     </section>
 
+    <section class="card">
+      <h2 class="section-title">人数</h2>
+      <div id="servings-options" class="chip-group"></div>
+    </section>
+
     <div class="button-col">
       <button id="decide-button" class="primary-button">献立を決める</button>
       <button id="ingredients-button" class="secondary-button">保有食材</button>
@@ -54,6 +59,9 @@
   <!-- ===== 献立候補一覧 ===== -->
   <main id="screen-result" class="screen hidden">
     <div id="result-summary" class="result-summary"></div>
+    <div class="button-col">
+      <button id="shuffle-button" class="secondary-button">🔀 ランダムに並べ替え</button>
+    </div>
     <div id="result-list"></div>
     <div class="button-col">
       <button id="back-from-result" class="secondary-button">トップへ戻る</button>
