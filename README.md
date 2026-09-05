@@ -43,3 +43,7 @@ python -m http.server 8000
 ## おまけ: 新宿→千歳烏山 次発電車比較
 
 `shinjuku-chitose-karasuyama/` に、上記の逆方向(新宿駅から千歳烏山方面)の次発電車を比較できるツールを同梱している。詳細は [shinjuku-chitose-karasuyama/README.md](shinjuku-chitose-karasuyama/README.md) を参照。
+
+## おまけ: 家庭料理献立アプリ（仮）
+
+`kondate/` に、保有食材・ジャンル・調理時間・履歴から家庭料理の主菜を自動提案する献立アプリを同梱している。詳細は [kondate/README.md](kondate/README.md) を参照。
