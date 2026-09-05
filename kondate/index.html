@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>今日のごはん何にする？</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <header class="app-header">
+    <h1>今日のごはん何にする？</h1>
+    <p class="subtitle">家庭料理献立アプリ（仮）</p>
+  </header>
+
+  <!-- ===== トップ画面 ===== -->
+  <main id="screen-top" class="screen">
+    <section class="card">
+      <h2 class="section-title">ジャンル</h2>
+      <div id="genre-options" class="chip-group"></div>
+    </section>
+
+    <section class="card">
+      <h2 class="section-title">調理時間</h2>
+      <div id="time-options" class="chip-group"></div>
+      <label class="toggle-row">
+        <span>時間優先（選んだ時間ぴったりの料理だけ表示）</span>
+        <input type="checkbox" id="time-priority-toggle">
+        <span class="toggle-switch" aria-hidden="true"></span>
+      </label>
+    </section>
+
+    <div class="button-col">
+      <button id="decide-button" class="primary-button">献立を決める</button>
+      <button id="ingredients-button" class="secondary-button">保有食材</button>
+    </div>
+  </main>
+
+  <!-- ===== 保有食材ページ ===== -->
+  <main id="screen-ingredients" class="screen hidden">
+    <div id="ingredient-categories"></div>
+
+    <section class="card">
+      <h2 class="section-title">調味料</h2>
+      <div id="seasoning-tabs" class="tab-bar"></div>
+      <div id="seasoning-panel"></div>
+    </section>
+
+    <div class="button-col">
+      <button id="back-from-ingredients" class="secondary-button">トップへ戻る</button>
+    </div>
+  </main>
+
+  <!-- ===== 献立候補一覧 ===== -->
+  <main id="screen-result" class="screen hidden">
+    <div id="result-summary" class="result-summary"></div>
+    <div id="result-list"></div>
+    <div class="button-col">
+      <button id="back-from-result" class="secondary-button">トップへ戻る</button>
+    </div>
+  </main>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="data.js"></script>
+<script src="script.js"></script>
+</body>
+</html>
