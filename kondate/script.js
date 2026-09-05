@@ -7,8 +7,8 @@ const STORAGE_KEY_EXCLUDED_SITES = 'kondate_excluded_sites_v1';
 const GENRES = ['和', '洋', '中', '他'];
 const TIME_OPTIONS = [10, 20, 30, 45];
 const SERVINGS_OPTIONS = [1, 2, 3, 4, 5, 6];
-const APP_VERSION = 'v1.6';
-const APP_VERSION_NOTE = '「簡易レシピ」表記に変更、献立を決めるボタンの配色を変更、調達不要のみ表示トグルを追加';
+const APP_VERSION = 'v1.7';
+const APP_VERSION_NOTE = '外部サイト検索のクエリに主要食材キーワードを追加し、ヒットしやすくした';
 
 // レシピ検索先サイト（除外されていないものだけ検索対象にする）
 const RECIPE_SITES = [
@@ -214,13 +214,14 @@ function renderSiteOptions() {
 
 // ----- レシピ外部検索 -----
 
-function openRecipeSearch(dishName) {
+function openRecipeSearch(dish) {
   const sites = RECIPE_SITES.filter((site) => !excludedSites.has(site.key));
   if (sites.length === 0) {
     showToast('検索サイトを1つ以上選択してください');
     return;
   }
-  const encodedQuery = encodeURIComponent(`${dishName} レシピ`);
+  const keywords = [dish.name, ...getMainIngredientLabels(dish, 2), 'レシピ'];
+  const encodedQuery = encodeURIComponent(keywords.join(' '));
   sites.forEach((site) => {
     window.open(site.urlTemplate.replace('{query}', encodedQuery), '_blank');
   });
@@ -328,6 +329,19 @@ function computeCandidates() {
 const ingredientLabelMap = {};
 INGREDIENT_CATEGORIES.forEach((c) => c.items.forEach(([key, label]) => (ingredientLabelMap[key] = label)));
 SEASONING_TABS.forEach((c) => c.items.forEach(([key, label]) => (ingredientLabelMap[key] = label)));
+
+// 検索クエリ用の主要食材抽出時に除外するキー（調味料・とろみ付け・薬味など）
+const MAIN_INGREDIENT_EXCLUDE = new Set([
+  ...SEASONING_TABS.flatMap((c) => c.items.map(([key]) => key)),
+  'katakuriko', 'flour', 'panko', 'oil', 'garlic', 'ginger',
+]);
+
+function getMainIngredientLabels(dish, limit) {
+  return dish.need
+    .filter((key) => !MAIN_INGREDIENT_EXCLUDE.has(key))
+    .slice(0, limit)
+    .map((key) => ingredientLabelMap[key] || key);
+}
 
 // ----- 分量表示（人数に応じてスケーリング） -----
 
@@ -439,7 +453,7 @@ function renderCandidateList(candidates) {
       searchButton.type = 'button';
       searchButton.className = 'search-sites-button';
       searchButton.textContent = '🔍 レシピサイトで検索';
-      searchButton.addEventListener('click', () => openRecipeSearch(dish.name));
+      searchButton.addEventListener('click', () => openRecipeSearch(dish));
       recipePanel.appendChild(searchButton);
 
       const ingredientTitle = document.createElement('p');
