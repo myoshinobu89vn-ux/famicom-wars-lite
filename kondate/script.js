@@ -2,6 +2,7 @@
 
 const STORAGE_KEY_INGREDIENTS = 'kondate_ingredients_v1';
 const STORAGE_KEY_HISTORY = 'kondate_history_v1';
+const STORAGE_KEY_MEMOS = 'kondate_memos_v1';
 const GENRES = ['和', '洋', '中', '他'];
 const TIME_OPTIONS = [10, 20, 30, 45];
 const SERVINGS_OPTIONS = [1, 2, 3, 4, 5, 6];
@@ -37,6 +38,24 @@ function addHistoryEntry(name) {
   const history = loadHistory();
   history.unshift({ name, date: new Date().toISOString() });
   localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(history));
+}
+
+function loadMemos() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY_MEMOS)) || {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function saveMemo(name, text) {
+  const memos = loadMemos();
+  if (text) {
+    memos[name] = text;
+  } else {
+    delete memos[name];
+  }
+  localStorage.setItem(STORAGE_KEY_MEMOS, JSON.stringify(memos));
 }
 
 function getRecentDishNames() {
@@ -370,6 +389,26 @@ function renderCandidateList(candidates) {
         stepsList.appendChild(li);
       });
       recipePanel.appendChild(stepsList);
+
+      const memoTitle = document.createElement('p');
+      memoTitle.className = 'recipe-subtitle';
+      memoTitle.textContent = 'メモ';
+      recipePanel.appendChild(memoTitle);
+
+      const memoInput = document.createElement('textarea');
+      memoInput.className = 'recipe-memo-input';
+      memoInput.placeholder = '味の調整や感想など、次に作るときのメモを残せます';
+      memoInput.value = loadMemos()[dish.name] || '';
+      let memoSaveTimer = null;
+      memoInput.addEventListener('input', () => {
+        clearTimeout(memoSaveTimer);
+        memoSaveTimer = setTimeout(() => saveMemo(dish.name, memoInput.value), 400);
+      });
+      memoInput.addEventListener('blur', () => {
+        clearTimeout(memoSaveTimer);
+        saveMemo(dish.name, memoInput.value);
+      });
+      recipePanel.appendChild(memoInput);
     }
 
     function setRecipeOpen(open) {
@@ -438,6 +477,10 @@ document.getElementById('back-from-ingredients').addEventListener('click', () =>
 });
 
 document.getElementById('back-from-result').addEventListener('click', () => {
+  showScreen('top');
+});
+
+document.getElementById('back-from-result-top').addEventListener('click', () => {
   showScreen('top');
 });
 
