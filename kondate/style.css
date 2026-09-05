@@ -19,6 +19,8 @@ html, body {
   --need-color: #e5844d;
   --need-bg: #fff1e4;
   --accent: #ff7a3d;
+  --primary-button-bg: #ffc93c;
+  --primary-button-text: #4a3200;
 }
 
 body {
@@ -207,8 +209,9 @@ body {
 }
 
 .primary-button {
-  background: var(--accent);
-  color: #fff;
+  background: var(--primary-button-bg);
+  color: var(--primary-button-text);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
 }
 
 .secondary-button {
