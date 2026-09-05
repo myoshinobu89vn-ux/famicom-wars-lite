@@ -3,11 +3,22 @@
 const STORAGE_KEY_INGREDIENTS = 'kondate_ingredients_v1';
 const STORAGE_KEY_HISTORY = 'kondate_history_v1';
 const STORAGE_KEY_MEMOS = 'kondate_memos_v1';
+const STORAGE_KEY_EXCLUDED_SITES = 'kondate_excluded_sites_v1';
 const GENRES = ['和', '洋', '中', '他'];
 const TIME_OPTIONS = [10, 20, 30, 45];
 const SERVINGS_OPTIONS = [1, 2, 3, 4, 5, 6];
-const APP_VERSION = 'v1.4';
-const APP_VERSION_NOTE = '右上にバージョン表示を追加。「作ったよ」をトグル式にし、記録しても候補から除外しないよう変更';
+const APP_VERSION = 'v1.5';
+const APP_VERSION_NOTE = 'レシピを外部サイトで検索するボタンを追加（検索先サイトは選択可）';
+
+// レシピ検索先サイト（除外されていないものだけ検索対象にする）
+const RECIPE_SITES = [
+  { key: 'cookpad', label: 'クックパッド', urlTemplate: 'https://cookpad.com/search/{query}' },
+  { key: 'kurashiru', label: 'クラシル', urlTemplate: 'https://www.kurashiru.com/search?query={query}' },
+  { key: 'delish', label: 'DELISH KITCHEN', urlTemplate: 'https://delishkitchen.tv/search?q={query}' },
+  { key: 'youtube', label: 'YouTube', urlTemplate: 'https://www.youtube.com/results?search_query={query}' },
+  { key: 'google', label: 'Google', urlTemplate: 'https://www.google.com/search?q={query}' },
+  { key: 'bing', label: 'Bing', urlTemplate: 'https://www.bing.com/search?q={query}' },
+];
 
 // ----- 永続化 -----
 
@@ -66,6 +77,18 @@ function saveMemo(name, text) {
   localStorage.setItem(STORAGE_KEY_MEMOS, JSON.stringify(memos));
 }
 
+function loadExcludedSites() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(STORAGE_KEY_EXCLUDED_SITES)) || []);
+  } catch (e) {
+    return new Set();
+  }
+}
+
+function saveExcludedSites(excludedSet) {
+  localStorage.setItem(STORAGE_KEY_EXCLUDED_SITES, JSON.stringify([...excludedSet]));
+}
+
 // ----- アプリ状態 -----
 
 const state = {
@@ -74,6 +97,9 @@ const state = {
   timePriority: false,
   servings: 2,
 };
+
+// レシピ検索から除外中のサイト（キーの集合）
+let excludedSites = loadExcludedSites();
 
 // 直近に計算した候補一覧（ランダム並べ替え用に保持）
 let lastCandidates = [];
@@ -154,6 +180,41 @@ function renderServingsOptions() {
       }
     });
     container.appendChild(chip);
+  });
+}
+
+function renderSiteOptions() {
+  const container = document.getElementById('site-options');
+  container.innerHTML = '';
+  RECIPE_SITES.forEach((site) => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'chip' + (excludedSites.has(site.key) ? '' : ' chip-active');
+    chip.textContent = site.label;
+    chip.addEventListener('click', () => {
+      if (excludedSites.has(site.key)) {
+        excludedSites.delete(site.key);
+      } else {
+        excludedSites.add(site.key);
+      }
+      saveExcludedSites(excludedSites);
+      renderSiteOptions();
+    });
+    container.appendChild(chip);
+  });
+}
+
+// ----- レシピ外部検索 -----
+
+function openRecipeSearch(dishName) {
+  const sites = RECIPE_SITES.filter((site) => !excludedSites.has(site.key));
+  if (sites.length === 0) {
+    showToast('検索サイトを1つ以上選択してください');
+    return;
+  }
+  const encodedQuery = encodeURIComponent(`${dishName} レシピ`);
+  sites.forEach((site) => {
+    window.open(site.urlTemplate.replace('{query}', encodedQuery), '_blank');
   });
 }
 
@@ -365,6 +426,13 @@ function renderCandidateList(candidates) {
     function renderRecipePanelContent() {
       recipePanel.innerHTML = '';
 
+      const searchButton = document.createElement('button');
+      searchButton.type = 'button';
+      searchButton.className = 'search-sites-button';
+      searchButton.textContent = '🔍 レシピサイトで検索';
+      searchButton.addEventListener('click', () => openRecipeSearch(dish.name));
+      recipePanel.appendChild(searchButton);
+
       const ingredientTitle = document.createElement('p');
       ingredientTitle.className = 'recipe-subtitle';
       ingredientTitle.textContent = `材料（${state.servings}人前）`;
@@ -530,4 +598,5 @@ appVersionEl.title = APP_VERSION_NOTE;
 renderGenreOptions();
 renderTimeOptions();
 renderServingsOptions();
+renderSiteOptions();
 showScreen('top');
