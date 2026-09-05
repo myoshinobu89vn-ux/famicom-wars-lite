@@ -4,6 +4,7 @@ const STORAGE_KEY_INGREDIENTS = 'kondate_ingredients_v1';
 const STORAGE_KEY_HISTORY = 'kondate_history_v1';
 const GENRES = ['和', '洋', '中', '他'];
 const TIME_OPTIONS = [10, 20, 30, 45];
+const SERVINGS_OPTIONS = [1, 2, 3, 4, 5, 6];
 const RECENT_EXCLUDE_COUNT = 5;
 
 // ----- 永続化 -----
@@ -54,7 +55,13 @@ const state = {
   selectedGenres: new Set(GENRES),
   selectedTime: 30,
   timePriority: false,
+  servings: 2,
 };
+
+// 直近に計算した候補一覧（ランダム並べ替え用に保持）
+let lastCandidates = [];
+// 開いているレシピ（作り方）の料理名一覧
+const openRecipeNames = new Set();
 
 // ----- 画面切り替え -----
 
@@ -111,6 +118,25 @@ function renderTimeOptions() {
 document.getElementById('time-priority-toggle').addEventListener('change', (e) => {
   state.timePriority = e.target.checked;
 });
+
+function renderServingsOptions() {
+  const container = document.getElementById('servings-options');
+  container.innerHTML = '';
+  SERVINGS_OPTIONS.forEach((n) => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'chip' + (state.servings === n ? ' chip-active' : '');
+    chip.textContent = `${n}人前`;
+    chip.addEventListener('click', () => {
+      state.servings = n;
+      renderServingsOptions();
+      if (!screens.result.classList.contains('hidden')) {
+        renderCandidateList(lastCandidates);
+      }
+    });
+    container.appendChild(chip);
+  });
+}
 
 // ----- 保有食材ページ -----
 
@@ -216,16 +242,53 @@ const ingredientLabelMap = {};
 INGREDIENT_CATEGORIES.forEach((c) => c.items.forEach(([key, label]) => (ingredientLabelMap[key] = label)));
 SEASONING_TABS.forEach((c) => c.items.forEach(([key, label]) => (ingredientLabelMap[key] = label)));
 
-function renderResultScreen() {
-  const candidates = computeCandidates();
-  const summary = document.getElementById('result-summary');
-  const list = document.getElementById('result-list');
+// ----- 分量表示（人数に応じてスケーリング） -----
 
+function roundToStep(value, step) {
+  return Math.round(value / step) * step;
+}
+
+function formatNumber(value) {
+  const rounded = Math.round(value * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : String(rounded);
+}
+
+function formatIngredientAmount(key) {
+  const info = INGREDIENT_SERVING_INFO[key];
+  const label = ingredientLabelMap[key] || key;
+  if (!info) return label;
+  if (info.fixed) return `${label} ${info.fixed}`;
+
+  const raw = info.amount * state.servings;
+  let step = 0.5;
+  if (info.unit === 'g' || info.unit === 'ml') step = 10;
+  const rounded = Math.max(step, roundToStep(raw, step));
+  return `${label} ${formatNumber(rounded)}${info.unit}`;
+}
+
+function shuffleArray(array) {
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+  return array;
+}
+
+function renderResultScreen() {
+  lastCandidates = computeCandidates();
+  const summary = document.getElementById('result-summary');
   const genreLabel = GENRES.filter((g) => state.selectedGenres.has(g)).join('・');
   const timeLabel = state.timePriority ? `${state.selectedTime}分ぴったり` : `${state.selectedTime}分以内`;
-  summary.textContent = `${genreLabel} / ${timeLabel} — ${candidates.length}件`;
+  summary.textContent = `${genreLabel} / ${timeLabel} / ${state.servings}人前 — ${lastCandidates.length}件`;
 
+  renderCandidateList(lastCandidates);
+}
+
+function renderCandidateList(candidates) {
+  const list = document.getElementById('result-list');
   list.innerHTML = '';
+
+  document.getElementById('shuffle-button').disabled = candidates.length < 2;
 
   if (candidates.length === 0) {
     const empty = document.createElement('p');
@@ -267,6 +330,65 @@ function renderResultScreen() {
       card.appendChild(missingLine);
     }
 
+    const buttonRow = document.createElement('div');
+    buttonRow.className = 'dish-button-row';
+
+    const recipeButton = document.createElement('button');
+    recipeButton.type = 'button';
+    recipeButton.className = 'recipe-toggle-button';
+
+    const recipePanel = document.createElement('div');
+    recipePanel.className = 'recipe-panel';
+
+    function renderRecipePanelContent() {
+      recipePanel.innerHTML = '';
+
+      const ingredientTitle = document.createElement('p');
+      ingredientTitle.className = 'recipe-subtitle';
+      ingredientTitle.textContent = `材料（${state.servings}人前）`;
+      recipePanel.appendChild(ingredientTitle);
+
+      const ingredientList = document.createElement('ul');
+      ingredientList.className = 'recipe-ingredient-list';
+      dish.need.forEach((key) => {
+        const li = document.createElement('li');
+        li.textContent = formatIngredientAmount(key);
+        ingredientList.appendChild(li);
+      });
+      recipePanel.appendChild(ingredientList);
+
+      const stepsTitle = document.createElement('p');
+      stepsTitle.className = 'recipe-subtitle';
+      stepsTitle.textContent = '作り方';
+      recipePanel.appendChild(stepsTitle);
+
+      const stepsList = document.createElement('ol');
+      stepsList.className = 'recipe-steps-list';
+      dish.steps.forEach((step) => {
+        const li = document.createElement('li');
+        li.textContent = step;
+        stepsList.appendChild(li);
+      });
+      recipePanel.appendChild(stepsList);
+    }
+
+    function setRecipeOpen(open) {
+      recipePanel.classList.toggle('hidden', !open);
+      recipeButton.textContent = open ? 'レシピを閉じる' : 'レシピを見る';
+      if (open) {
+        openRecipeNames.add(dish.name);
+        renderRecipePanelContent();
+      } else {
+        openRecipeNames.delete(dish.name);
+      }
+    }
+
+    recipeButton.addEventListener('click', () => {
+      setRecipeOpen(recipePanel.classList.contains('hidden'));
+    });
+
+    setRecipeOpen(openRecipeNames.has(dish.name));
+
     const cookedButton = document.createElement('button');
     cookedButton.type = 'button';
     cookedButton.className = 'cooked-button';
@@ -276,7 +398,11 @@ function renderResultScreen() {
       showToast(`「${dish.name}」を記録しました！`);
       renderResultScreen();
     });
-    card.appendChild(cookedButton);
+
+    buttonRow.appendChild(recipeButton);
+    buttonRow.appendChild(cookedButton);
+    card.appendChild(buttonRow);
+    card.appendChild(recipePanel);
 
     list.appendChild(card);
   });
@@ -315,8 +441,14 @@ document.getElementById('back-from-result').addEventListener('click', () => {
   showScreen('top');
 });
 
+document.getElementById('shuffle-button').addEventListener('click', () => {
+  shuffleArray(lastCandidates);
+  renderCandidateList(lastCandidates);
+});
+
 // ----- 初期化 -----
 
 renderGenreOptions();
 renderTimeOptions();
+renderServingsOptions();
 showScreen('top');
