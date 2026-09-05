@@ -119,6 +119,28 @@ body {
   margin-bottom: 6px;
 }
 
+.keyword-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid #ecdfcd;
+  border-radius: 10px;
+  background: #fffaf3;
+  color: var(--text-main);
+  font-size: 0.9rem;
+  font-family: inherit;
+}
+
+.keyword-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.keyword-input::placeholder {
+  color: var(--text-sub);
+}
+
 .chip {
   padding: 6px 12px;
   border: none;

@@ -7,8 +7,8 @@ const STORAGE_KEY_EXCLUDED_SITES = 'kondate_excluded_sites_v1';
 const GENRES = ['和', '洋', '中', '他'];
 const TIME_OPTIONS = [10, 20, 30, 45];
 const SERVINGS_OPTIONS = [1, 2, 3, 4, 5, 6];
-const APP_VERSION = 'v2.0';
-const APP_VERSION_NOTE = '日本の郷土料理40品・海外の国民料理60品を追加し、料理データを200品に拡充（魚介類カテゴリ・世界の調味料も追加）';
+const APP_VERSION = 'v2.1';
+const APP_VERSION_NOTE = 'キーワード検索を追加（料理名・特徴の説明文・主要食材から絞り込み可能）';
 
 // レシピ検索先サイト（除外されていないものだけ検索対象にする）
 const RECIPE_SITES = [
@@ -97,6 +97,7 @@ const state = {
   timePriority: false,
   servings: 2,
   onlyAvailable: false,
+  keyword: '',
 };
 
 // レシピ検索から除外中のサイト（キーの集合）
@@ -167,6 +168,13 @@ document.getElementById('time-priority-toggle').addEventListener('change', (e) =
 
 document.getElementById('only-available-toggle').addEventListener('change', (e) => {
   state.onlyAvailable = e.target.checked;
+  if (!screens.result.classList.contains('hidden')) {
+    renderResultScreen();
+  }
+});
+
+document.getElementById('keyword-input').addEventListener('input', (e) => {
+  state.keyword = e.target.value.trim();
   if (!screens.result.classList.contains('hidden')) {
     renderResultScreen();
   }
@@ -308,12 +316,20 @@ function renderSeasoningPanel() {
 
 // ----- 献立決定ロジック -----
 
+function dishMatchesKeyword(dish, keyword) {
+  if (!keyword) return true;
+  if (dish.name.includes(keyword)) return true;
+  if (dish.description.includes(keyword)) return true;
+  return dish.need.some((key) => (ingredientLabelMap[key] || '').includes(keyword));
+}
+
 function computeCandidates() {
   const ingredients = loadIngredients();
 
   return DISHES
     .filter((dish) => state.selectedGenres.has(dish.genre))
     .filter((dish) => (state.timePriority ? dish.time === state.selectedTime : dish.time <= state.selectedTime))
+    .filter((dish) => dishMatchesKeyword(dish, state.keyword))
     .map((dish) => {
       const missing = dish.need.filter((key) => !ingredients[key]);
       return { dish, missing, available: missing.length === 0 };
@@ -380,7 +396,8 @@ function renderResultScreen() {
   const summary = document.getElementById('result-summary');
   const genreLabel = GENRES.filter((g) => state.selectedGenres.has(g)).join('・');
   const timeLabel = state.timePriority ? `${state.selectedTime}分ぴったり` : `${state.selectedTime}分以内`;
-  summary.textContent = `${genreLabel} / ${timeLabel} / ${state.servings}人前 — ${lastCandidates.length}件`;
+  const keywordLabel = state.keyword ? ` / 「${state.keyword}」で検索` : '';
+  summary.textContent = `${genreLabel} / ${timeLabel} / ${state.servings}人前${keywordLabel} — ${lastCandidates.length}件`;
 
   renderCandidateList(lastCandidates);
 }
